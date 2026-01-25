@@ -174,6 +174,12 @@ void vi_vertical_interrupt_event(void* opaque)
     /* toggle vi field if in interlaced mode */
     vi->field ^= (vi->regs[VI_STATUS_REG] >> 6) & 0x1;
 
+    /* Jimmi frame logic */
+    frame_manager_on_vi_interrupt();
+    const uint64_t f = frame_manager_get_frame_index();
+    input_manager_latch_for_frame(f);
+    input_plugin_poll_all_controllers_for_frame(f);
+
     /* schedule next vertical interrupt */
     uint32_t next_vi = *get_event(&vi->mi->r4300->cp0.q, VI_INT) + vi->delay;
     remove_interrupt_event(&vi->mi->r4300->cp0);

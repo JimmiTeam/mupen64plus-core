@@ -26,6 +26,7 @@
 #include "backends/api/controller_input_backend.h"
 #include "backends/api/rumble_backend.h"
 #include "backends/api/joybus.h"
+#include "jimmi/input_manager.h"
 
 #include <stdint.h>
 
@@ -53,6 +54,11 @@ struct controller_input_compat
 
     uint32_t netplay_count;
     struct netplay_event* event_first;
+
+    uint64_t latched_frame_index;
+    uint32_t latched_input;
+    JimmiControllerState latched_decoded;
+    uint8_t latched_present;
 };
 
 extern const struct controller_input_backend_interface

@@ -423,6 +423,9 @@
     <ClCompile Include="..\..\src\device\r4300\new_dynarec\arm64\assem_arm64.c">
       <Filter>device\r4300\new_dynarec\arm64</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\device\r4300\cp2.c" />
+    <ClCompile Include="..\..\src\jimmi\frame_manager.c" />
+    <ClCompile Include="..\..\src\jimmi\input_manager.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\api\callbacks.h">
@@ -773,6 +776,9 @@
     <ClInclude Include="..\..\src\device\dd\disk.h">
       <Filter>device\dd</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\device\r4300\cp2.h" />
+    <ClInclude Include="..\..\src\jimmi\frame_manager.h" />
+    <ClInclude Include="..\..\src\jimmi\input_manager.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\src\device\r4300\mips_instructions.def">

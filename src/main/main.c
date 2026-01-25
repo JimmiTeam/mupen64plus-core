@@ -95,9 +95,9 @@ m64p_handle g_CoreConfig = NULL;
 
 m64p_frame_callback g_FrameCallback = NULL;
 
+
 int         g_RomWordsLittleEndian = 0; // after loading, ROM words are in native N64 byte order (big endian). We will swap them on x86
 int         g_EmulatorRunning = 0;      // need separate boolean to tell if emulator is running, since --nogui doesn't use a thread
-
 
 int g_rom_pause;
 
@@ -116,6 +116,8 @@ struct device g_dev;
 m64p_media_loader g_media_loader;
 
 int g_gs_vi_counter = 0;
+
+struct controller_input_compat* g_cin_by_port[] = { NULL, NULL, NULL, NULL };
 
 /** static (local) variables **/
 static int   l_CurrentFrame = 0;         // frame counter
@@ -1768,6 +1770,8 @@ m64p_error main_run(void)
             cin_compats[i].netplay_count = 0;
             cin_compats[i].event_first = NULL;
 
+            g_cin_by_port[i] = &cin_compats[i];
+
             Controls[i].Plugin = PLUGIN_NONE;
 
             /* init vru_controller */
@@ -1795,6 +1799,8 @@ m64p_error main_run(void)
             cin_compats[i].last_input = 0;
             cin_compats[i].netplay_count = 0;
             cin_compats[i].event_first = NULL;
+            
+            g_cin_by_port[i] = &cin_compats[i];
 
             l_gb_carts_data[i].control_id = (int)i;
 
@@ -1989,6 +1995,10 @@ m64p_error main_run(void)
             release_gb_ram(&l_gb_carts_data[i]);
         }
     }
+
+    // for (int i = 0; i < 4; ++i) {
+    //     g_cin_by_port[i] = NULL;
+    // }
 
     igbcam_backend->close(gbcam_backend);
     igbcam_backend->release(gbcam_backend);

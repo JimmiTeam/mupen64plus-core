@@ -55,6 +55,8 @@ extern m64p_frame_callback g_FrameCallback;
 
 extern int g_gs_vi_counter;
 
+extern struct controller_input_compat* g_cin_by_port[];
+
 const char* get_savestatepath(void);
 const char* get_savesrampath(void);
 const char* get_savestatefilename(void);

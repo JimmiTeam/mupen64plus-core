@@ -25,6 +25,8 @@
 #include "backends/api/controller_input_backend.h"
 #include "backends/api/rumble_backend.h"
 #include "plugin/plugin.h"
+#include "jimmi/frame_manager.h"
+#include "jimmi/input_manager.h"
 
 #include "main/main.h"
 #include "main/netplay.h"
@@ -53,14 +55,11 @@ static int is_button_released(uint32_t input, uint32_t last_input, uint32_t mask
         && ((last_input & mask) != 0);
 }
 
-static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
+static m64p_error poll_input_once(struct controller_input_compat* cin_compat, uint32_t* out)
 {
-    struct controller_input_compat* cin_compat = (struct controller_input_compat*)opaque;
     BUTTONS keys = { 0 };
-
     int pak_change_requested = 0;
 
-    /* first poll controller */
     if (!netplay_is_init())
     {
         if (input.getKeys)
@@ -89,7 +88,6 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
     if (!Controls[cin_compat->control_id].Present) {
         return M64ERR_SYSTEM_FAIL;
     }
-
 
     /* has Controls[i].Plugin changed since last call */
     if (cin_compat->last_pak_type != Controls[cin_compat->control_id].Plugin) {
@@ -132,9 +130,78 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
     cin_compat->last_pak_type = Controls[cin_compat->control_id].Plugin;
     cin_compat->last_input = keys.Value;
 
-    *input_ = keys.Value;
+    *out = keys.Value;
+    return M64ERR_SUCCESS;
+}   
+
+static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
+{
+    struct controller_input_compat* cin_compat = (struct controller_input_compat*)opaque;
+
+    
+    const uint64_t current_frame_index = frame_manager_get_frame_index();
+    
+    
+    if (cin_compat->latched_frame_index != current_frame_index)
+    {
+        uint32_t value = 0;
+        m64p_error err = poll_input_once(cin_compat, &value);
+
+        cin_compat->latched_frame_index = current_frame_index;
+        cin_compat->latched_input = value;
+        JimmiControllerState p1 = decode_input(cin_compat->latched_input);
+        cin_compat->latched_decoded = decode_input(value);
+        cin_compat->latched_present = (err == M64ERR_SUCCESS);
+
+        
+        // DebugMessage(M64MSG_INFO, "p%d A=%d stick=(%d,%d) raw=%08x",
+        //     cin_compat->control_id,
+        //     (p1.buttons & CI_STD_A) != 0,
+        //     (int)p1.stick_x, (int)p1.stick_y,
+        //     cin_compat->latched_input
+        // );
+    }
+    
+    if (!cin_compat->latched_present)
+    {
+        return M64ERR_SYSTEM_FAIL;
+    }
+    
+    input_manager_record_raw(cin_compat->control_id, current_frame_index, cin_compat->latched_input);
+    *input_ = cin_compat->latched_input;
     return M64ERR_SUCCESS;
 }
+
+
+void input_plugin_poll_all_controllers_for_frame(uint64_t frame_index)
+{
+    for (int i = 0; i < NUM_CONTROLLER; i++)
+    {
+        struct controller_input_compat* cin_compat = g_cin_by_port[i];
+
+        if (cin_compat->latched_frame_index != frame_index)
+        {
+            uint32_t value = 0;
+            m64p_error err = poll_input_once(cin_compat, &value);
+    
+            cin_compat->latched_frame_index = frame_index;
+            cin_compat->latched_input = value;
+            cin_compat->latched_decoded = decode_input(value);
+            cin_compat->latched_present = (err == M64ERR_SUCCESS);
+        }
+
+        if (cin_compat->latched_present)
+            input_manager_record_raw(cin_compat->control_id, frame_index, cin_compat->latched_input);
+        
+        if ((frame_index % 60) == 0)
+        {
+            uint32_t p1 = input_manager_get_raw(0);
+            DebugMessage(M64MSG_INFO, "Forcing poll f=%llu p1=%08x",
+                        (unsigned long long)frame_index, p1);
+        }
+    }
+}
+
 
 const struct controller_input_backend_interface
     g_icontroller_input_backend_plugin_compat =

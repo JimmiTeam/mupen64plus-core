@@ -147,6 +147,8 @@
     <ClCompile Include="..\..\src\device\gb\m64282fp.c" />
     <ClCompile Include="..\..\src\device\gb\mbc3_rtc.c" />
     <ClCompile Include="..\..\src\device\pif\bootrom_hle.c" />
+    <ClCompile Include="..\..\src\jimmi\frame_manager.c" />
+    <ClCompile Include="..\..\src\jimmi\input_manager.c" />
     <ClCompile Include="..\..\src\main\cheat.c" />
     <ClCompile Include="..\..\src\device\device.c" />
     <ClCompile Include="..\..\src\main\eventloop.c" />
@@ -453,6 +455,8 @@
     <ClInclude Include="..\..\src\device\gb\m64282fp.h" />
     <ClInclude Include="..\..\src\device\gb\mbc3_rtc.h" />
     <ClInclude Include="..\..\src\device\pif\bootrom_hle.h" />
+    <ClInclude Include="..\..\src\jimmi\frame_manager.h" />
+    <ClInclude Include="..\..\src\jimmi\input_manager.h" />
     <ClInclude Include="..\..\src\main\cheat.h" />
     <ClInclude Include="..\..\src\device\device.h" />
     <ClInclude Include="..\..\src\main\eventloop.h" />

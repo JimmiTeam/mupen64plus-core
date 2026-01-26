@@ -45,6 +45,7 @@
 #include "osd/osd.h"
 #include "rom.h"
 #include "util.h"
+#include "jimmi/game_manager.h"
 
 #define CHUNKSIZE 1024*128 /* Read files 128KB at a time. */
 
@@ -164,6 +165,13 @@ m64p_error open_rom(const unsigned char* romimage, unsigned int size)
     /* ROM is now in N64 native (big endian) byte order */
 
     memcpy(&ROM_HEADER, (uint8_t*)mem_base_u32(g_mem_base, MM_CART_ROM), sizeof(m64p_rom_header));
+
+    /* If not Smash Remix 2.0.0, exit */
+    if (!game_manager_get_is_remix(ROM_HEADER.CRC1, ROM_HEADER.CRC2))
+    {
+        DebugMessage(M64MSG_ERROR, "open_rom(): unsupported ROM - only Smash Remix 2.0.0 is supported");
+        return M64ERR_INPUT_INVALID;
+    }
 
     /* Calculate MD5 hash  */
     md5_init(&state);

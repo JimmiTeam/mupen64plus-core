@@ -11,6 +11,8 @@ static uint64_t latched_frame_index = 0;
 void input_manager_init(void)
 {
     memset(ports, 0, sizeof(ports));
+    memset(raw_ports, 0, sizeof(raw_ports));
+    memset(has_ports, 0, sizeof(has_ports));
     latched_frame_index = 0;
 }
 
@@ -50,17 +52,6 @@ uint32_t input_manager_get_raw(unsigned int port_index)
 void input_manager_latch_for_frame(uint64_t frame_index)
 {
     latched_frame_index = frame_index;
-
-    // if ((frame_index % 60) == 0)
-    // {
-    //     DebugMessage(M64MSG_INFO,
-    //         "Input Manager: Latched input for frame=%llu p1 buttons=%04x stick=(%d,%d)",
-    //         frame_index,
-    //         ports[0].buttons,
-    //         ports[0].stick_x,
-    //         ports[0].stick_y
-    //     );
-    // }
 }
 
 
@@ -72,7 +63,7 @@ void input_manager_record_raw(unsigned int port_index, uint64_t frame_index, uin
     if (frame_index != latched_frame_index)
     {
         DebugMessage(M64MSG_WARNING,
-            "[InputManager] record_raw for frame=%llu but latched_frame=%llu (port=%u)",
+            "Input Manager: record_raw for frame=%llu but latched_frame=%llu (port=%u)",
             (unsigned long long)frame_index,
             (unsigned long long)latched_frame_index,
             port_index);
@@ -82,14 +73,13 @@ void input_manager_record_raw(unsigned int port_index, uint64_t frame_index, uin
     ports[port_index] = decode_input(packed_input);
     has_ports[port_index] = 1;
 
-    
-    if ((frame_index % 60) == 0)
-    {
-        JimmiControllerState p1 = ports[0];
-        DebugMessage(M64MSG_INFO,
-        "[P1] f=%llu buttons=%04x stick=(%d,%d) raw=%08x",
-        (unsigned long long)frame_index,
-        p1.buttons, (int)p1.stick_x, (int)p1.stick_y,
-        raw_ports[0]);
-    }
+    // if ((frame_index % 60) == 0)
+    // {
+    //     JimmiControllerState p1 = ports[0];
+    //     DebugMessage(M64MSG_INFO,
+    //     "[P1] f=%llu buttons=%04x stick=(%d,%d) raw=%08x",
+    //     (unsigned long long)frame_index,
+    //     p1.buttons, (int)p1.stick_x, (int)p1.stick_y,
+    //     raw_ports[0]);
+    // }
 }

@@ -74,4 +74,6 @@ extern const struct rumble_backend_interface
 extern const struct joybus_device_interface
     g_ijoybus_device_plugin_compat;
 
+
+void input_plugin_poll_all_controllers_for_frame(uint64_t frame_index);
 #endif

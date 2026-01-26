@@ -191,6 +191,7 @@ static void process_controller_command(void* jbd,
         *rx |= 0x80;
         return;
     }
+    
 
     switch (cmd)
     {

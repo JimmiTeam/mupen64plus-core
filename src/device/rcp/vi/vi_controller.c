@@ -29,6 +29,12 @@
 #include "device/rcp/mi/mi_controller.h"
 #include "main/main.h"
 #include "plugin/plugin.h"
+#include "backends/plugins_compat/plugins_compat.h"
+#include "jimmi/frame_manager.h"
+#include "jimmi/input_manager.h"
+#include "jimmi/replay_manager.h"
+#include "jimmi/playback_manager.h"
+#include "jimmi/game_manager.h"
 
 unsigned int vi_clock_from_tv_standard(m64p_system_type tv_standard)
 {
@@ -178,7 +184,84 @@ void vi_vertical_interrupt_event(void* opaque)
     frame_manager_on_vi_interrupt();
     const uint64_t f = frame_manager_get_frame_index();
     input_manager_latch_for_frame(f);
-    input_plugin_poll_all_controllers_for_frame(f);
+
+    /* Handle playback if enabled, otherwise poll controllers for live input */
+    int playback_enabled = playback_manager_is_enabled();
+    int match_ongoing = game_manager_get_game_status() == REMIX_ONGOING;
+    
+    if (playback_enabled && match_ongoing)
+    {
+        /* Read prerecorded inputs from playback file */
+        PlaybackInputRecord record;
+        int has_input_this_frame = 0;
+        FILE* playback_file = playback_manager_get_file();
+        
+        if (playback_file != NULL)
+        {
+            while (playback_manager_read_input(&record))
+            {
+                /* If read past the current frame, seek back and stop */
+                if (record.frame_index > f)
+                {
+                    /* Seek back 16 bytes (one record) to re-read this record next frame */
+                    fseek(playback_file, -16, SEEK_CUR);
+                    break;
+                }
+                
+                /* Skip records from earlier frames (shouldn't happen if file is well-formed) */
+                if (record.frame_index < f)
+                {
+                    continue;
+                }
+                
+                /* This record is for the current frame */
+                input_manager_record_raw(record.controller_index, f, record.raw_input);
+                has_input_this_frame = 1;
+            }
+        }
+        
+        if ((f % 60) == 0 && has_input_this_frame)
+        {
+            DebugMessage(M64MSG_INFO, "Playback Manager: Replayed frame %llu", f);
+        }
+    }
+    else
+    {
+        /* Poll controllers for live input */
+        input_plugin_poll_all_controllers_for_frame(f);
+    }
+
+    int replays_enabled = replay_manager_is_enabled();
+
+    if (replays_enabled && !playback_enabled && match_ongoing)
+    {
+
+        if ((f % 60) == 0)
+        {
+            DebugMessage(M64MSG_INFO, "Replay Manager: Recording inputs for frame %llu", f);
+        }
+
+        char* replay_path = replay_manager_get_path();
+        if (replay_path != NULL)
+        {
+            FILE * replay_file = replay_manager_get_file();
+            if (replay_file != NULL)
+            {
+                // Write input for all 4 controller ports
+                int write_failed = 0;
+                write_failed |= !replay_manager_write_input(replay_file, 0, f, input_manager_get_raw(0));
+                write_failed |= !replay_manager_write_input(replay_file, 1, f, input_manager_get_raw(1));
+                write_failed |= !replay_manager_write_input(replay_file, 2, f, input_manager_get_raw(2));
+                write_failed |= !replay_manager_write_input(replay_file, 3, f, input_manager_get_raw(3));
+                
+                if (write_failed)
+                {
+                    DebugMessage(M64MSG_WARNING, "Replay Manager: Failed to write input for frame %llu", f);
+                }
+            }
+        }
+    }
+
 
     /* schedule next vertical interrupt */
     uint32_t next_vi = *get_event(&vi->mi->r4300->cp0.q, VI_INT) + vi->delay;

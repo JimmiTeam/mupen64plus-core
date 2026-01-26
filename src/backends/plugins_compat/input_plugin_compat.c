@@ -27,6 +27,8 @@
 #include "plugin/plugin.h"
 #include "jimmi/frame_manager.h"
 #include "jimmi/input_manager.h"
+#include "jimmi/playback_manager.h"
+#include "jimmi/game_manager.h"
 
 #include "main/main.h"
 #include "main/netplay.h"
@@ -134,32 +136,41 @@ static m64p_error poll_input_once(struct controller_input_compat* cin_compat, ui
     return M64ERR_SUCCESS;
 }   
 
+
 static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
 {
     struct controller_input_compat* cin_compat = (struct controller_input_compat*)opaque;
-
-    
     const uint64_t current_frame_index = frame_manager_get_frame_index();
     
-    
+    /* Use the value that was already latched during VI interrupt processing
+     * The latched values were set by input_plugin_poll_all_controllers_for_frame() */
     if (cin_compat->latched_frame_index != current_frame_index)
     {
+        /* Mismatch: the controller value hasn't been latched for this frame yet
+         * This shouldn't happen in normal operation as VI interrupt should come first
+         * But handle it gracefully */
         uint32_t value = 0;
-        m64p_error err = poll_input_once(cin_compat, &value);
+        m64p_error err = M64ERR_SUCCESS;
+        
+        if (playback_manager_is_enabled() && game_manager_get_game_status() == REMIX_ONGOING)
+        {
+            /* During playback, read from input_manager (set by VI interrupt from playback file) */
+            value = input_manager_get_raw(cin_compat->control_id);
+            cin_compat->latched_present = input_manager_has_input(cin_compat->control_id);
+        }
+        else
+        {
+            /* During live input, poll the hardware */
+            err = poll_input_once(cin_compat, &value);
+            cin_compat->latched_present = (err == M64ERR_SUCCESS);
+            
+            /* Record to input_manager */
+            input_manager_record_raw(cin_compat->control_id, current_frame_index, value);
+        }
 
         cin_compat->latched_frame_index = current_frame_index;
         cin_compat->latched_input = value;
-        JimmiControllerState p1 = decode_input(cin_compat->latched_input);
         cin_compat->latched_decoded = decode_input(value);
-        cin_compat->latched_present = (err == M64ERR_SUCCESS);
-
-        
-        // DebugMessage(M64MSG_INFO, "p%d A=%d stick=(%d,%d) raw=%08x",
-        //     cin_compat->control_id,
-        //     (p1.buttons & CI_STD_A) != 0,
-        //     (int)p1.stick_x, (int)p1.stick_y,
-        //     cin_compat->latched_input
-        // );
     }
     
     if (!cin_compat->latched_present)
@@ -167,7 +178,6 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
         return M64ERR_SYSTEM_FAIL;
     }
     
-    input_manager_record_raw(cin_compat->control_id, current_frame_index, cin_compat->latched_input);
     *input_ = cin_compat->latched_input;
     return M64ERR_SUCCESS;
 }
@@ -175,6 +185,12 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
 
 void input_plugin_poll_all_controllers_for_frame(uint64_t frame_index)
 {
+    /* Skip polling input plugin if playback is enabled - inputs come from playback file */
+    if (playback_manager_is_enabled())
+    {
+        return;
+    }
+
     for (int i = 0; i < NUM_CONTROLLER; i++)
     {
         struct controller_input_compat* cin_compat = g_cin_by_port[i];

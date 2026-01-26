@@ -78,6 +78,9 @@
 #include "screenshot.h"
 #include "util.h"
 #include "netplay.h"
+#include "jimmi/frame_manager.h"
+#include "jimmi/input_manager.h"
+#include "jimmi/replay_manager.h"
 
 #ifdef DBG
 #include "debugger/dbg_debugger.h"
@@ -441,6 +444,11 @@ int main_set_core_defaults(void)
     ConfigSetDefaultString(g_CoreConfig, "GbCameraVideoCaptureBackend1", DEFAULT_VIDEO_CAPTURE_BACKEND, "Gameboy Camera Video Capture backend");
     ConfigSetDefaultInt(g_CoreConfig, "SaveDiskFormat", 1, "Disk Save Format (0: Full Disk Copy (*.ndr/*.d6r), 1: RAM Area Only (*.ram))");
     ConfigSetDefaultInt(g_CoreConfig, "SaveFilenameFormat", 1, "Save (SRAM/State) Filename Format (0: ROM Header Name, 1: Automatic (including partial MD5 hash))");
+    ConfigSetDefaultInt(g_CoreConfig, "Record", 0, "Enable input replays (recording and playback of controller inputs)");
+    ConfigSetDefaultString(g_CoreConfig, "RecordPath", "", "Path to replay files for input recording and playback.");
+    ConfigSetDefaultInt(g_CoreConfig, "Playback", 0, "Enable input playback from previously recorded replays");
+    ConfigSetDefaultString(g_CoreConfig, "PlaybackPath", "", "Path to replay files for input recording and playback.");
+
 
     /* handle upgrades */
     if (bUpgrade)
@@ -1996,9 +2004,9 @@ m64p_error main_run(void)
         }
     }
 
-    // for (int i = 0; i < 4; ++i) {
-    //     g_cin_by_port[i] = NULL;
-    // }
+    for (int i = 0; i < 4; ++i) {
+        g_cin_by_port[i] = NULL;
+    }
 
     igbcam_backend->close(gbcam_backend);
     igbcam_backend->release(gbcam_backend);

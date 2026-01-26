@@ -48,6 +48,10 @@
 #include "main/netplay.h"
 #include "plugin/plugin.h"
 #include "vidext.h"
+#include "jimmi/frame_manager.h"
+#include "jimmi/input_manager.h"
+#include "jimmi/replay_manager.h"
+#include "jimmi/playback_manager.h"
 
 /* some local state variables */
 static int l_CoreInit = 0;
@@ -89,28 +93,36 @@ EXPORT m64p_error CALL CoreStartup(int APIVersion, const char *ConfigPath, const
 
     savestates_init();
 
+    
     /* next, start up the configuration handling code by loading and parsing the config file */
     if (ConfigInit(ConfigPath, DataPath) != M64ERR_SUCCESS)
-        return M64ERR_INTERNAL;
-
+    return M64ERR_INTERNAL;
+    
     /* set default configuration parameter values for Core */
     if (ConfigOpenSection("Core", &g_CoreConfig) != M64ERR_SUCCESS || g_CoreConfig == NULL)
-        return M64ERR_INTERNAL;
-
+    return M64ERR_INTERNAL;
+    
+    
     if (!main_set_core_defaults())
-        return M64ERR_INTERNAL;
-
+    return M64ERR_INTERNAL;
+    
+    frame_manager_init();
+    input_manager_init();
+    replay_manager_init();
+    playback_manager_init();
+    
     /* allocate base memory */
     g_mem_base = init_mem_base();
     if (g_mem_base == NULL) {
         return M64ERR_NO_MEMORY;
     }
-
+    
     /* The ROM database contains MD5 hashes, goodnames, and some game-specific parameters */
     romdatabase_open();
 
+    
     workqueue_init();
-
+    
     l_CoreInit = 1;
     return M64ERR_SUCCESS;
 }
@@ -122,6 +134,7 @@ EXPORT m64p_error CALL CoreShutdown(void)
 
     /* close down some core sub-systems */
     romdatabase_close();
+    playback_manager_close();
     ConfigShutdown();
     workqueue_shutdown();
     savestates_deinit();

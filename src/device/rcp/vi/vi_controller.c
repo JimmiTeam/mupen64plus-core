@@ -36,6 +36,7 @@
 #include "jimmi/playback_manager.h"
 #include "jimmi/game_manager.h"
 
+
 unsigned int vi_clock_from_tv_standard(m64p_system_type tv_standard)
 {
     switch(tv_standard)

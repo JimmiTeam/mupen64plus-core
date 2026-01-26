@@ -5,7 +5,9 @@
 #include "main/main.h"
 #include "main/rom.h"
 
+
 const static RemixMeta REMIX_META =  {"Smash Remix", 3236924630, 1440317707};
+
 
 int game_manager_get_is_remix(uint32_t crc1, uint32_t crc2)
 {

@@ -21,32 +21,35 @@ void replay_manager_init(void)
         replay_path = NULL;
     }
     
-    if (replays_enabled)
-    {
-        if (ConfigGetParameter(g_CoreConfig, "RecordPath", M64TYPE_STRING, replay_path_buffer, sizeof(replay_path_buffer)) == M64ERR_SUCCESS)
-        {
-            if (replay_path_buffer[0] != '\0')
-            {
-                replay_path = strdup(replay_path_buffer);
-            }
-        }
-        replay_file = replay_manager_open();
-    }
+    // if (replays_enabled)
+    // {
+    //     if (ConfigGetParameter(g_CoreConfig, "RecordPath", M64TYPE_STRING, replay_path_buffer, sizeof(replay_path_buffer)) == M64ERR_SUCCESS)
+    //     {
+    //         if (replay_path_buffer[0] != '\0')
+    //         {
+    //             replay_path = strdup(replay_path_buffer);
+    //         }
+    //     }
+    //     replay_file = replay_manager_open();
+    // }
 }
 
-FILE * replay_manager_open()
+void replay_manager_open()
 {
     if (!replays_enabled || replay_path == NULL)
     {
         return NULL;
     }
     
-    FILE *file = fopen(replay_path, "wb");
+    char input_path[1024];
+    snprintf(input_path, sizeof(input_path), "%s\\inputs.bin", replay_path);
+
+    FILE *file = fopen(input_path, "wb");
     if (file == NULL)
     {
-        DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to open replay file at path %s", replay_path);
+        DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to open replay file at path %s", input_path);
     }
-    return file;
+    replay_file = file;
 }
 
 
@@ -111,6 +114,40 @@ int replay_manager_is_enabled(void)
 
 char* replay_manager_get_path(void)
 {
+    return replay_path;
+}
+
+int replay_manager_set_path(char* path)
+{
+    if (replay_path != NULL)
+    {
+        free(replay_path);
+        replay_path = NULL;
+    }
+    
+    if (path != NULL)
+    {
+        replay_path = strdup(path);
+        if (replay_path == NULL)
+        {
+            DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to set replay path");
+            return 0;
+        }
+    }
+    
+    return 1;
+}
+
+char* replay_manager_generate_path()
+{
+    char folder[64];
+    time_t now = time(NULL);
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    strftime(folder, sizeof(folder), "%Y-%m-%d_%H-%M-%S", &tmv);
+    char state_path[1024];
+    sprintf(state_path, sizeof(state_path), "%s/replays/%s", ".\\", folder);
+    replay_manager_set_path(state_path);
     return replay_path;
 }
 

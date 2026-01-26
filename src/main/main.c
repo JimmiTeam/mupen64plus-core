@@ -81,6 +81,8 @@
 #include "jimmi/frame_manager.h"
 #include "jimmi/input_manager.h"
 #include "jimmi/replay_manager.h"
+#include "jimmi/playback_manager.h"
+#include "jimmi/game_manager.h"
 
 #ifdef DBG
 #include "debugger/dbg_debugger.h"
@@ -142,6 +144,9 @@ static size_t l_pak_type_idx[6];
 
 /* PRNG state - used for Mempaks ID generation */
 static struct xoshiro256pp_state l_mpk_idgen;
+
+/* Jimmi replay stuff */
+static int last_game_state = 0;
 
 /*********************************************************************************************************
 * static functions
@@ -1087,6 +1092,25 @@ void new_vi(void)
     pause_loop();
 
     netplay_check_sync(&g_dev.r4300.cp0);
+
+    /* Is replay recording enabled and did a match just start this "frame"? */
+    /* If yes, make a save state. */
+    int recording_enabled = replay_manager_is_enabled();
+    int current_game_state = game_manager_get_game_status();
+
+    if (last_game_state == REMIX_WAIT &&
+        current_game_state == REMIX_ONGOING &&
+        recording_enabled)
+    {
+        char* replay_path = replay_manager_generate_path();
+        replay_manager_open();
+        char state_path[1024];
+        snprintf(state_path, sizeof(state_path), "%s\\%s", replay_path, "state.st");
+        main_state_save(savestates_type_m64p, state_path);
+        savestates_save();
+    }
+
+    last_game_state = game_manager_get_game_status();
 }
 
 static void main_switch_pak(int control_id)
@@ -1985,7 +2009,21 @@ m64p_error main_run(void)
 
     poweron_device(&g_dev);
     pif_bootrom_hle_execute(&g_dev.r4300);
+
+    /* Get initial game state for Jimmi replays */
+    last_game_state = game_manager_get_game_status();
+    /* If watching a replay, load state */
+    int playback_enabled = playback_manager_is_enabled();
+    if (playback_enabled)
+    {
+        main_state_load(".\\replay.state");
+        savestates_load();
+    }
+
     run_device(&g_dev);
+
+
+    
 
     /* now begin to shut down */
 #ifdef WITH_LIRC

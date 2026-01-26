@@ -41,7 +41,7 @@ FILE * replay_manager_open()
         return NULL;
     }
     
-    FILE *file = fopen(replay_path, "ab");
+    FILE *file = fopen(replay_path, "wb");
     if (file == NULL)
     {
         DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to open replay file at path %s", replay_path);
@@ -70,6 +70,9 @@ int replay_manager_write_input(FILE * file, int controller_index, uint64_t frame
         return 0;
     }
     
+    // Filter out Start button (0x0010) to allow pausing without affecting replay
+    uint32_t filtered_input = raw_input & ~0x0010u;
+    
     // Write frame data in format: controller_index | frame_index | raw_input
     if (fwrite(&controller_index, sizeof(int), 1, file) != 1)
     {
@@ -83,7 +86,7 @@ int replay_manager_write_input(FILE * file, int controller_index, uint64_t frame
         return 0;
     }
     
-    if (fwrite(&raw_input, sizeof(uint32_t), 1, file) != 1)
+    if (fwrite(&filtered_input, sizeof(uint32_t), 1, file) != 1)
     {
         DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to write raw_input");
         return 0;

@@ -191,38 +191,29 @@ void vi_vertical_interrupt_event(void* opaque)
     
     if (playback_enabled && match_ongoing)
     {
-        /* Read prerecorded inputs from playback file */
+        /* Read prerecorded inputs from playback file sequentially
+         * Note: We ignore the absolute frame numbers stored in the replay file
+         * and just play inputs in order, since each new playback session starts at frame 0 */
         PlaybackInputRecord record;
-        int has_input_this_frame = 0;
         FILE* playback_file = playback_manager_get_file();
         
         if (playback_file != NULL)
         {
-            while (playback_manager_read_input(&record))
+            /* Read and inject the inputs for this frame from all 4 controller ports */
+            int record_count = 0;
+            while (playback_manager_read_input(&record) && record_count < 4)
             {
-                /* If read past the current frame, seek back and stop */
-                if (record.frame_index > f)
-                {
-                    /* Seek back 16 bytes (one record) to re-read this record next frame */
-                    fseek(playback_file, -16, SEEK_CUR);
-                    break;
-                }
-                
-                /* Skip records from earlier frames (shouldn't happen if file is well-formed) */
-                if (record.frame_index < f)
-                {
-                    continue;
-                }
-                
-                /* This record is for the current frame */
-                input_manager_record_raw(record.controller_index, f, record.raw_input);
-                has_input_this_frame = 1;
+                /* All records for this logical frame should be read in sequence
+                 * Filter out Start button to allow pausing without affecting playback */
+                uint32_t filtered_input = record.raw_input & ~0x0010u;
+                input_manager_record_raw(record.controller_index, f, filtered_input);
+                record_count++;
             }
-        }
-        
-        if ((f % 60) == 0 && has_input_this_frame)
-        {
-            DebugMessage(M64MSG_INFO, "Playback Manager: Replayed frame %llu", f);
+            
+            if ((f % 60) == 0 && record_count > 0)
+            {
+                DebugMessage(M64MSG_INFO, "Playback Manager: Replayed frame %llu with %d port inputs", f, record_count);
+            }
         }
     }
     else
@@ -238,7 +229,7 @@ void vi_vertical_interrupt_event(void* opaque)
 
         if ((f % 60) == 0)
         {
-            DebugMessage(M64MSG_INFO, "Replay Manager: Recording inputs for frame %llu", f);
+            DebugMessage(M64MSG_INFO, "Replay Manager: Current stage id: %d", game_manager_get_stage_id());
         }
 
         char* replay_path = replay_manager_get_path();

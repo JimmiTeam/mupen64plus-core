@@ -157,6 +157,17 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
             /* During playback, read from input_manager (set by VI interrupt from playback file) */
             value = input_manager_get_raw(cin_compat->control_id);
             cin_compat->latched_present = input_manager_has_input(cin_compat->control_id);
+            
+            /* Allow user to press Start to pause during playback */
+            uint32_t user_input = 0;
+            m64p_error user_err = poll_input_once(cin_compat, &user_input);
+            if (user_err == M64ERR_SUCCESS)
+            {
+                /* Extract Start button from user input */
+                uint32_t start_button = user_input & 0x0010u;
+                /* Merge Start button with replay data */
+                value |= start_button;
+            }
         }
         else
         {

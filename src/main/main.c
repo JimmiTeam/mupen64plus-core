@@ -449,9 +449,8 @@ int main_set_core_defaults(void)
     ConfigSetDefaultString(g_CoreConfig, "GbCameraVideoCaptureBackend1", DEFAULT_VIDEO_CAPTURE_BACKEND, "Gameboy Camera Video Capture backend");
     ConfigSetDefaultInt(g_CoreConfig, "SaveDiskFormat", 1, "Disk Save Format (0: Full Disk Copy (*.ndr/*.d6r), 1: RAM Area Only (*.ram))");
     ConfigSetDefaultInt(g_CoreConfig, "SaveFilenameFormat", 1, "Save (SRAM/State) Filename Format (0: ROM Header Name, 1: Automatic (including partial MD5 hash))");
-    ConfigSetDefaultInt(g_CoreConfig, "Replays", 0, "Enable input replays (recording and playback of controller inputs)");
-    // ConfigSetDefaultString(g_CoreConfig, "ReplaysPath", "", "Path to replay files for input recording and playback.");
-    ConfigSetDefaultInt(g_CoreConfig, "Playback", 0, "Enable input playback from previously recorded replays");
+    ConfigSetDefaultBool(g_CoreConfig, "Replays", 0, "Enable input replays (recording and playback of controller inputs)");
+    ConfigSetDefaultBool(g_CoreConfig, "Playback", 0, "Enable input playback from previously recorded replays");
     ConfigSetDefaultString(g_CoreConfig, "PlaybackPath", "", "Path to replay file being played.");
 
 

@@ -26,6 +26,7 @@ void playback_manager_init(void)
     {
         if (ConfigGetParameter(g_CoreConfig, "PlaybackPath", M64TYPE_STRING, playback_path_buffer, sizeof(playback_path_buffer)) == M64ERR_SUCCESS)
         {
+            DebugMessage(M64MSG_INFO, "Playing from playback path: %s", playback_path_buffer);
             if (playback_path_buffer[0] != '\0')
             {
                 playback_path = strdup(playback_path_buffer);
@@ -46,8 +47,10 @@ FILE* playback_manager_open(void)
     {
         return NULL;
     }
-    
-    FILE *file = fopen(playback_path, "rb");
+
+    char full_playback_path[1024];
+    snprintf(full_playback_path, sizeof(full_playback_path), "%s\\inputs.bin", playback_path);
+    FILE *file = fopen(full_playback_path, "rb");
     if (file == NULL)
     {
         DebugMessage(M64MSG_ERROR, "Playback Manager: Failed to open playback file at path %s", playback_path);
@@ -74,7 +77,7 @@ int playback_manager_read_input(PlaybackInputRecord* out_record)
     }
     
     // Read record format: controller_index (4) | frame_index (8) | raw_input (4) = 16 bytes
-    if (fread(&out_record->controller_index, sizeof(int), 1, playback_file) != 1)
+    if (fread(&out_record->controller_index, sizeof(uint32_t), 1, playback_file) != 1)
     {
         // EOF or read error - normal condition when reaching end of file
         return 0;

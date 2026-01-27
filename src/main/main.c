@@ -1080,6 +1080,25 @@ static void pause_loop(void)
  * Allow the core to perform various things */
 void new_vi(void)
 {
+    int recording_enabled = replay_manager_is_enabled();
+    int current_game_state = game_manager_get_game_status();
+    
+    // DebugMessage(M64MSG_INFO, "Last game state: %d, Current game state: %d, Recording enabled: %d",
+    //     last_game_state, current_game_state, recording_enabled);
+    
+    if (last_game_state == REMIX_WAIT &&
+        current_game_state == REMIX_ONGOING &&
+        recording_enabled)
+    {
+        char* replay_path = replay_manager_generate_path();
+        replay_manager_open();
+        char state_path[1024];
+        snprintf(state_path, sizeof(state_path), "%s\\%s", replay_path, "state.st");
+        DebugMessage(M64MSG_INFO, "Creating replay save state: %s", state_path);
+        main_state_save(savestates_type_m64p, state_path);
+    }
+    
+    last_game_state = game_manager_get_game_status();
 #if defined(PROFILE)
     timed_sections_refresh();
 #endif
@@ -1095,22 +1114,6 @@ void new_vi(void)
 
     /* Is replay recording enabled and did a match just start this "frame"? */
     /* If yes, make a save state. */
-    int recording_enabled = replay_manager_is_enabled();
-    int current_game_state = game_manager_get_game_status();
-
-    if (last_game_state == REMIX_WAIT &&
-        current_game_state == REMIX_ONGOING &&
-        recording_enabled)
-    {
-        char* replay_path = replay_manager_generate_path();
-        replay_manager_open();
-        char state_path[1024];
-        snprintf(state_path, sizeof(state_path), "%s\\%s", replay_path, "state.st");
-        main_state_save(savestates_type_m64p, state_path);
-        savestates_save();
-    }
-
-    last_game_state = game_manager_get_game_status();
 }
 
 static void main_switch_pak(int control_id)
@@ -2010,14 +2013,20 @@ m64p_error main_run(void)
     poweron_device(&g_dev);
     pif_bootrom_hle_execute(&g_dev.r4300);
 
+    frame_manager_init();
+    input_manager_init();
+    replay_manager_init();
+    playback_manager_init();
+
     /* Get initial game state for Jimmi replays */
     last_game_state = game_manager_get_game_status();
     /* If watching a replay, load state */
     int playback_enabled = playback_manager_is_enabled();
     if (playback_enabled)
     {
-        main_state_load(ConfigGetParamString(g_CoreConfig, "PlaybackPath"));
-        savestates_load();
+        char state_path[4096];
+        snprintf(state_path, sizeof(state_path), "%s\\state.st", playback_manager_get_path());
+        main_state_load(state_path);
     }
 
     run_device(&g_dev);

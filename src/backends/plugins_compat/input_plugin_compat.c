@@ -220,12 +220,12 @@ void input_plugin_poll_all_controllers_for_frame(uint64_t frame_index)
         if (cin_compat->latched_present)
             input_manager_record_raw(cin_compat->control_id, frame_index, cin_compat->latched_input);
         
-        if ((frame_index % 60) == 0)
-        {
-            uint32_t p1 = input_manager_get_raw(0);
-            DebugMessage(M64MSG_INFO, "Forcing poll f=%llu p1=%08x",
-                        (unsigned long long)frame_index, p1);
-        }
+        // if ((frame_index % 60) == 0)
+        // {
+        //     uint32_t p1 = input_manager_get_raw(0);
+        //     DebugMessage(M64MSG_INFO, "Forcing poll f=%llu p1=%08x",
+        //                 (unsigned long long)frame_index, p1);
+        // }
     }
 }
 

@@ -106,10 +106,10 @@ EXPORT m64p_error CALL CoreStartup(int APIVersion, const char *ConfigPath, const
     if (!main_set_core_defaults())
     return M64ERR_INTERNAL;
     
-    frame_manager_init();
-    input_manager_init();
-    replay_manager_init();
-    playback_manager_init();
+    // frame_manager_init();
+    // input_manager_init();
+    // replay_manager_init();
+    // playback_manager_init();
     
     /* allocate base memory */
     g_mem_base = init_mem_base();

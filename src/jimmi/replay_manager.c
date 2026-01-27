@@ -3,6 +3,9 @@
 #include "main/main.h"
 #include "api/config.h"
 #include <string.h>
+#include <time.h>
+#include <stdio.h>
+#include "osal/files.h"
 
 
 static int replays_enabled;
@@ -13,7 +16,7 @@ void replay_manager_init(void)
 {
     char replay_path_buffer[512] = {0};
     
-    replays_enabled = ConfigGetParamBool(g_CoreConfig, "Record");
+    replays_enabled = ConfigGetParamBool(g_CoreConfig, "Replays");
     
     if (replay_path != NULL)
     {
@@ -36,11 +39,6 @@ void replay_manager_init(void)
 
 void replay_manager_open()
 {
-    if (!replays_enabled || replay_path == NULL)
-    {
-        return NULL;
-    }
-    
     char input_path[1024];
     snprintf(input_path, sizeof(input_path), "%s\\inputs.bin", replay_path);
 
@@ -141,13 +139,17 @@ int replay_manager_set_path(char* path)
 char* replay_manager_generate_path()
 {
     char folder[64];
-    time_t now = time(NULL);
+    time_t now = time(0);
     struct tm tmv;
-    localtime_r(&now, &tmv);
-    strftime(folder, sizeof(folder), "%Y-%m-%d_%H-%M-%S", &tmv);
-    char state_path[1024];
-    sprintf(state_path, sizeof(state_path), "%s/replays/%s", ".\\", folder);
-    replay_manager_set_path(state_path);
+    localtime_s(&tmv, &now);
+    strftime(folder, sizeof(folder), ".\\replays\\%Y-%m-%d_%H-%M-%S", &tmv);
+    int dir_result = osal_mkdirp(folder, 0755);
+    if (dir_result != 0)
+    {
+        DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to create replay directory at path %s", folder);
+        return NULL;
+    }
+    replay_manager_set_path(folder);
     return replay_path;
 }
 

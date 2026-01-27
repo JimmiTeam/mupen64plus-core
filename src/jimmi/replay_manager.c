@@ -40,7 +40,7 @@ void replay_manager_init(void)
 void replay_manager_open()
 {
     char input_path[1024];
-    snprintf(input_path, sizeof(input_path), "%s\\inputs.bin", replay_path);
+    snprintf(input_path, sizeof(input_path), "%s/inputs.bin", replay_path);
 
     FILE *file = fopen(input_path, "wb");
     if (file == NULL)
@@ -142,7 +142,7 @@ char* replay_manager_generate_path()
     time_t now = time(0);
     struct tm tmv;
     localtime_s(&tmv, &now);
-    strftime(folder, sizeof(folder), ".\\replays\\%Y-%m-%d_%H-%M-%S", &tmv);
+    strftime(folder, sizeof(folder), "./replays/%Y-%m-%d_%H.%M.%S", &tmv);
     int dir_result = osal_mkdirp(folder, 0755);
     if (dir_result != 0)
     {

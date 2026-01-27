@@ -1092,8 +1092,9 @@ void new_vi(void)
         char* replay_path = replay_manager_generate_path();
         replay_manager_open();
         char state_path[1024];
-        snprintf(state_path, sizeof(state_path), "%s\\%s", replay_path, "state.st");
+        snprintf(state_path, sizeof(state_path), "%s/%s", replay_path, "state.st");
         DebugMessage(M64MSG_INFO, "Creating replay save state: %s", state_path);
+        TakeScreenshot(l_CurrentFrame);
         main_state_save(savestates_type_m64p, state_path);
     }
     

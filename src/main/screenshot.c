@@ -262,7 +262,7 @@ void TakeScreenshot(int iFrameNumber)
     }
     else
     {
-        main_message(M64MSG_INFO, OSD_BOTTOM_LEFT, "Captured screenshot for frame %i.", iFrameNumber);
+        // main_message(M64MSG_INFO, OSD_BOTTOM_LEFT, "Captured screenshot for frame %i.", iFrameNumber);
         StateChanged(M64CORE_SCREENSHOT_CAPTURED, 1);
     }
 }

@@ -1094,6 +1094,7 @@ void new_vi(void)
         char state_path[1024];
         snprintf(state_path, sizeof(state_path), "%s/%s", replay_path, "state.st");
         DebugMessage(M64MSG_INFO, "Creating replay save state: %s", state_path);
+        ConfigSetParameter(g_CoreConfig, "ScreenshotPath", M64TYPE_STRING, replay_path);
         TakeScreenshot(l_CurrentFrame);
         main_state_save(savestates_type_m64p, state_path);
     }

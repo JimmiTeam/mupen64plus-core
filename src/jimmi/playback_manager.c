@@ -49,7 +49,7 @@ FILE* playback_manager_open(void)
     }
 
     char full_playback_path[1024];
-    snprintf(full_playback_path, sizeof(full_playback_path), "%s\\inputs.bin", playback_path);
+    snprintf(full_playback_path, sizeof(full_playback_path), "%s/inputs.bin", playback_path);
     FILE *file = fopen(full_playback_path, "rb");
     if (file == NULL)
     {

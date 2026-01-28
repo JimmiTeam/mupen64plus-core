@@ -450,6 +450,7 @@ int main_set_core_defaults(void)
     ConfigSetDefaultInt(g_CoreConfig, "SaveDiskFormat", 1, "Disk Save Format (0: Full Disk Copy (*.ndr/*.d6r), 1: RAM Area Only (*.ram))");
     ConfigSetDefaultInt(g_CoreConfig, "SaveFilenameFormat", 1, "Save (SRAM/State) Filename Format (0: ROM Header Name, 1: Automatic (including partial MD5 hash))");
     ConfigSetDefaultBool(g_CoreConfig, "Replays", 0, "Enable input replays (recording and playback of controller inputs)");
+    ConfigSetDefaultBool(g_CoreConfig, "ReplaysPath", "", "Path to directory where replay files are saved");
     ConfigSetDefaultBool(g_CoreConfig, "Playback", 0, "Enable input playback from previously recorded replays");
     ConfigSetDefaultString(g_CoreConfig, "PlaybackPath", "", "Path to replay file being played.");
 
@@ -1100,6 +1101,23 @@ void new_vi(void)
         DebugMessage(M64MSG_INFO, "Creating replay save state: %s", state_path);
         ConfigSetParameter(g_CoreConfig, "ScreenshotPath", M64TYPE_STRING, replay_path);
         TakeScreenshot(l_CurrentFrame);
+        char game_type_path[1024];
+        if (g_GameType == GAME_IS_REMIX)
+        {
+            snprintf(game_type_path, sizeof(game_type_path), "%s/%s", replay_path, "remix");
+            FILE *fp = fopen(game_type_path, "w");
+            fclose(fp);
+        }
+        else if (g_GameType == GAME_IS_VANILLA)
+        {
+            snprintf(game_type_path, sizeof(game_type_path), "%s/%s", replay_path, "vanilla");
+            FILE *fp = fopen(game_type_path, "w");
+            fclose(fp);
+        }
+        else
+        {
+            DebugMessage(M64MSG_WARNING, "Unknown game type: %d", g_GameType);
+        }
         main_state_save(savestates_type_m64p, state_path);
     }
     

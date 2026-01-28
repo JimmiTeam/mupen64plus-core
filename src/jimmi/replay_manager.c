@@ -15,7 +15,6 @@ static FILE * replay_file = NULL;
 
 void replay_manager_init(void)
 {
-    char replay_path_buffer[512] = {0};
     
     replays_enabled = ConfigGetParamBool(g_CoreConfig, "Replays");
     
@@ -24,20 +23,18 @@ void replay_manager_init(void)
         free(replay_path);
         replay_path = NULL;
     }
-
-    replay_manager_set_path(replay_manager_generate_path());
     
-    // if (replays_enabled)
-    // {
-    //     if (ConfigGetParameter(g_CoreConfig, "RecordPath", M64TYPE_STRING, replay_path_buffer, sizeof(replay_path_buffer)) == M64ERR_SUCCESS)
-    //     {
-    //         if (replay_path_buffer[0] != '\0')
-    //         {
-    //             replay_path = strdup(replay_path_buffer);
-    //         }
-    //     }
-    //     replay_file = replay_manager_open();
-    // }
+    if (replays_enabled)
+    {
+        char replay_path_buffer[512] = {0};
+        if (ConfigGetParameter(g_CoreConfig, "ReplaysPath", M64TYPE_STRING, replay_path_buffer, sizeof(replay_path_buffer)) == M64ERR_SUCCESS)
+        {
+            if (replay_path_buffer[0] != '\0')
+            {
+                replay_path = strdup(replay_path_buffer);
+            }
+        }
+    }
 }
 
 void replay_manager_open()
@@ -141,23 +138,12 @@ int replay_manager_set_path(char* path)
 
 char* replay_manager_generate_path()
 {
-    char folder[64];
+    char folder[1024];
     time_t now = time(0);
     struct tm tmv;
     localtime_s(&tmv, &now);
-    if (g_GameType == GAME_IS_REMIX)
-    {
-        strftime(folder, sizeof(folder), "./replays/remix/%Y-%m-%dT%H.%M.%S", &tmv);
-    }
-    else if (g_GameType == GAME_IS_VANILLA)
-    {
-        strftime(folder, sizeof(folder), "./replays/vanilla/%Y-%m-%dT%H.%M.%S", &tmv);
-    }
-    else
-    {
-        DebugMessage(M64MSG_ERROR, "Replay Manager: Unknown game type %d, cannot generate replay path", g_GameType);
-        return NULL;
-    }
+    strftime(folder, sizeof(folder), "%Y-%m-%dT%H.%M.%S", &tmv);
+    snprintf(folder, sizeof(folder), "%s/%s", replay_path, folder);
     int dir_result = osal_mkdirp(folder, 0755);
     if (dir_result != 0)
     {

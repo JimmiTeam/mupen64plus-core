@@ -1090,6 +1090,10 @@ void new_vi(void)
         recording_enabled)
     {
         char* replay_path = replay_manager_generate_path();
+        if (replay_path == NULL) {
+            DebugMessage(M64MSG_ERROR, "Failed to generate replay path");
+            return;
+        }
         replay_manager_open();
         char state_path[1024];
         snprintf(state_path, sizeof(state_path), "%s/%s", replay_path, "state.st");
@@ -2014,6 +2018,7 @@ m64p_error main_run(void)
     poweron_device(&g_dev);
     pif_bootrom_hle_execute(&g_dev.r4300);
 
+    /* Initialize Jimmi stuff*/
     frame_manager_init();
     input_manager_init();
     replay_manager_init();
@@ -2026,7 +2031,7 @@ m64p_error main_run(void)
     if (playback_enabled)
     {
         char state_path[4096];
-        snprintf(state_path, sizeof(state_path), "%s\\state.st", playback_manager_get_path());
+        snprintf(state_path, sizeof(state_path), "%s/state.st", playback_manager_get_path());
         main_state_load(state_path);
     }
 

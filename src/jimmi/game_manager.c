@@ -8,14 +8,23 @@
 
 const static RemixMeta REMIX_META =  {"Smash Remix", 3236924630, 1440317707};
 
+static int g_GameType = GAME_IS_REMIX;
 
+const enum
+{
+    GAME_IS_REMIX,
+    GAME_IS_VANILLA,
+};
+
+// TODO: Make a more reliable validation method (MD5 probably)
 int game_manager_get_is_remix(uint32_t crc1, uint32_t crc2)
 {
     if (crc1 == REMIX_META.crc1 && crc2 == REMIX_META.crc2)
     {
-        return 1;
+        g_GameType = GAME_IS_REMIX;
+        return GAME_IS_REMIX;
     }
-    return 0;
+    return NULL;
 }
 
 

@@ -17,6 +17,14 @@ enum {
     REMIX_RESET = 16777216,     // Initial game state
 };
 
+enum
+{
+    GAME_IS_REMIX,
+    GAME_IS_VANILLA,
+};
+
+int g_GameType;
+
 int game_manager_get_is_remix(uint32_t crc1, uint32_t crc2);
 int game_manager_get_game_status();
 int game_manager_get_stage_id();

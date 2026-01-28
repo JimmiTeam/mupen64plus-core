@@ -1,4 +1,5 @@
 #include "replay_manager.h"
+#include "game_manager.h"
 #include "api/callbacks.h"
 #include "main/main.h"
 #include "api/config.h"
@@ -23,6 +24,8 @@ void replay_manager_init(void)
         free(replay_path);
         replay_path = NULL;
     }
+
+    replay_manager_set_path(replay_manager_generate_path());
     
     // if (replays_enabled)
     // {
@@ -142,14 +145,26 @@ char* replay_manager_generate_path()
     time_t now = time(0);
     struct tm tmv;
     localtime_s(&tmv, &now);
-    strftime(folder, sizeof(folder), "./replays/%Y-%m-%d_%H.%M.%S", &tmv);
+    if (g_GameType == GAME_IS_REMIX)
+    {
+        strftime(folder, sizeof(folder), "./replays/remix/%Y-%m-%dT%H.%M.%S", &tmv);
+    }
+    else if (g_GameType == GAME_IS_VANILLA)
+    {
+        strftime(folder, sizeof(folder), "./replays/vanilla/%Y-%m-%dT%H.%M.%S", &tmv);
+    }
+    else
+    {
+        DebugMessage(M64MSG_ERROR, "Replay Manager: Unknown game type %d, cannot generate replay path", g_GameType);
+        return NULL;
+    }
     int dir_result = osal_mkdirp(folder, 0755);
     if (dir_result != 0)
     {
         DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to create replay directory at path %s", folder);
         return NULL;
     }
-    replay_manager_set_path(folder);
+    // replay_manager_set_path(folder);
     return replay_path;
 }
 

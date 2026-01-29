@@ -148,6 +148,7 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
     // so VI interrupt didn't load replay data yet), we must load it immediately.
     int playback_enabled = playback_manager_is_enabled();
     int match_ongoing = game_manager_get_game_status() == REMIX_ONGOING;
+    // || game_manager_get_game_status() == REMIX_UNPAUSED;
 
     if (playback_enabled && match_ongoing)
     {

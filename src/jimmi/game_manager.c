@@ -10,21 +10,20 @@ const static RemixMeta REMIX_META =  {"Smash Remix", 3236924630, 1440317707};
 
 static int g_GameType = GAME_IS_REMIX;
 
-const enum
-{
-    GAME_IS_REMIX,
-    GAME_IS_VANILLA,
-};
-
 // TODO: Make a more reliable validation method (MD5 probably)
 int game_manager_get_is_remix(uint32_t crc1, uint32_t crc2)
 {
     if (crc1 == REMIX_META.crc1 && crc2 == REMIX_META.crc2)
     {
         g_GameType = GAME_IS_REMIX;
-        return GAME_IS_REMIX;
+        return 1;
     }
-    return NULL;
+    return 0;
+}
+
+
+int game_manager_get_game() {
+    return g_GameType;
 }
 
 
@@ -64,4 +63,42 @@ int game_manager_get_stage_id()
     stage_id = rdram->dram[physical_offset >> 2];
 
     return stage_id;
+}
+
+int game_manager_get_current_screen()
+{
+    struct rdram* rdram = &g_dev.rdram;
+    uint32_t virtual_addr = 0x800A4AD0;  // Current screen address
+    uint32_t physical_offset = virtual_addr & 0x3FFFFF;  // Convert to physical RDRAM offset
+    int current_screen = 0;
+
+    // Validate address is within RDRAM bounds
+    if (physical_offset >= rdram->dram_size) {
+        DebugMessage(M64MSG_ERROR, "Game Manager: Address 0x%X out of RDRAM bounds", virtual_addr);
+        return 0;
+    }
+
+    // Read 8-bit value from RDRAM by casting to uint8_t* for byte-level access
+    current_screen = rdram->dram[physical_offset >> 2];
+
+    return current_screen;
+}
+
+int game_manager_get_last_screen()
+{
+    struct rdram* rdram = &g_dev.rdram;
+    uint32_t virtual_addr = 0x800A4AD1;  // last screen address
+    uint32_t physical_offset = virtual_addr & 0x3FFFFF;  // Convert to physical RDRAM offset
+    int last_screen = 0;
+
+    // Validate address is within RDRAM bounds
+    if (physical_offset >= rdram->dram_size) {
+        DebugMessage(M64MSG_ERROR, "Game Manager: Address 0x%X out of RDRAM bounds", virtual_addr);
+        return 0;
+    }
+
+    // Read 8-bit value from RDRAM by casting to uint8_t* for byte-level access
+    last_screen = rdram->dram[physical_offset >> 2];
+
+    return last_screen;
 }

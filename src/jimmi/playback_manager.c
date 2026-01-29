@@ -79,7 +79,7 @@ int playback_manager_read_input(PlaybackInputRecord* out_record)
     // Read record format: controller_index (4) | frame_index (8) | raw_input (4) = 16 bytes
     if (fread(&out_record->controller_index, sizeof(uint32_t), 1, playback_file) != 1)
     {
-        // EOF or read error - normal condition when reaching end of file
+        // EOF or read error
         return 0;
     }
     
@@ -121,4 +121,35 @@ char* playback_manager_get_path(void)
 FILE* playback_manager_get_file(void)
 {
     return playback_file;
+}
+
+int playback_manager_read_frame(uint64_t f)
+{
+    if (!playback_enabled || playback_file == NULL)
+        return 0;
+
+    PlaybackInputRecord record;
+    int record_count = 0;
+    
+    while (record_count < 4)
+    {
+        long pos = ftell(playback_file);
+        if (!playback_manager_read_input(&record))
+        {
+            // EOF or Error
+            break;
+        }
+        
+        // Filter out Start button (0x0010) to allow pausing without affecting playback
+        uint32_t filtered_input = record.raw_input & ~0x0010u;
+        input_manager_record_raw(record.controller_index, f, filtered_input, 1);
+        record_count++;
+    }
+    
+    if ((f % 60) == 0 && record_count > 0)
+    {
+        DebugMessage(M64MSG_INFO, "Playback Manager: Replayed frame %llu with %d port inputs", f, record_count);
+    }
+    
+    return record_count;
 }

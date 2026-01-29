@@ -15,8 +15,10 @@ char* playback_manager_get_path(void);
 FILE* playback_manager_get_file(void);
 FILE* playback_manager_open(void);
 
-/* Read the next input record from the playback file
- * Returns 1 if successfully read a record, 0 if EOF or error */
+// Helper to read 4 records from file and populate input_manager for the given frame
+// Returns number of records read
+int playback_manager_read_frame(uint64_t f);
+
 int playback_manager_read_input(PlaybackInputRecord* out_record);
 
 void playback_manager_close(void);

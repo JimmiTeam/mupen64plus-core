@@ -147,6 +147,8 @@ static struct xoshiro256pp_state l_mpk_idgen;
 
 /* Jimmi replay stuff */
 static int last_game_state = 0;
+static int last_game_screen = 0;
+static char timestamp_folder[1024];
 
 /*********************************************************************************************************
 * static functions
@@ -404,6 +406,7 @@ int main_set_core_defaults(void)
 {
     float fConfigParamsVersion;
     int bUpgrade = 0;
+    int bFalse = 0;
 
     if (ConfigGetParameter(g_CoreConfig, "Version", M64TYPE_FLOAT, &fConfigParamsVersion, sizeof(float)) != M64ERR_SUCCESS)
     {
@@ -450,9 +453,13 @@ int main_set_core_defaults(void)
     ConfigSetDefaultInt(g_CoreConfig, "SaveDiskFormat", 1, "Disk Save Format (0: Full Disk Copy (*.ndr/*.d6r), 1: RAM Area Only (*.ram))");
     ConfigSetDefaultInt(g_CoreConfig, "SaveFilenameFormat", 1, "Save (SRAM/State) Filename Format (0: ROM Header Name, 1: Automatic (including partial MD5 hash))");
     ConfigSetDefaultBool(g_CoreConfig, "Replays", 0, "Enable input replays (recording and playback of controller inputs)");
-    ConfigSetDefaultBool(g_CoreConfig, "ReplaysPath", "", "Path to directory where replay files are saved");
+    ConfigSetDefaultString(g_CoreConfig, "ReplaysPath", "", "Path to directory where replay files are saved");
     ConfigSetDefaultBool(g_CoreConfig, "Playback", 0, "Enable input playback from previously recorded replays");
     ConfigSetDefaultString(g_CoreConfig, "PlaybackPath", "", "Path to replay file being played.");
+
+    /* Always reset Replays/Playback to false, unless set by command line (which happens after this) */
+    ConfigSetParameter(g_CoreConfig, "Replays", M64TYPE_BOOL, &bFalse);
+    ConfigSetParameter(g_CoreConfig, "Playback", M64TYPE_BOOL, &bFalse);
 
 
     /* handle upgrades */
@@ -1086,42 +1093,60 @@ void new_vi(void)
     // DebugMessage(M64MSG_INFO, "Last game state: %d, Current game state: %d, Recording enabled: %d",
     //     last_game_state, current_game_state, recording_enabled);
     
+
     if (last_game_state == REMIX_WAIT &&
         current_game_state == REMIX_ONGOING &&
         recording_enabled)
     {
-        char* replay_path = replay_manager_generate_path();
-        if (replay_path == NULL) {
-            DebugMessage(M64MSG_ERROR, "Failed to generate replay path");
-            return;
-        }
-        replay_manager_open();
-        char state_path[1024];
-        snprintf(state_path, sizeof(state_path), "%s/%s", replay_path, "state.st");
-        DebugMessage(M64MSG_INFO, "Creating replay save state: %s", state_path);
-        ConfigSetParameter(g_CoreConfig, "ScreenshotPath", M64TYPE_STRING, replay_path);
+        replay_manager_open(timestamp_folder);
+        char* replay_folder = replay_manager_generate_path(timestamp_folder);
+        ConfigSetParameter(g_CoreConfig, "ScreenshotPath", M64TYPE_STRING, replay_folder);
         TakeScreenshot(l_CurrentFrame);
         char game_type_path[1024];
-        if (g_GameType == GAME_IS_REMIX)
+        if (game_manager_get_game() == GAME_IS_REMIX)
         {
-            snprintf(game_type_path, sizeof(game_type_path), "%s/%s", replay_path, "remix");
+            snprintf(game_type_path, sizeof(game_type_path), "%s/%s", replay_folder, "remix");
             FILE *fp = fopen(game_type_path, "w");
             fclose(fp);
         }
-        else if (g_GameType == GAME_IS_VANILLA)
+        else if (game_manager_get_game() == GAME_IS_VANILLA)
         {
-            snprintf(game_type_path, sizeof(game_type_path), "%s/%s", replay_path, "vanilla");
+            snprintf(game_type_path, sizeof(game_type_path), "%s/%s", replay_folder, "vanilla");
             FILE *fp = fopen(game_type_path, "w");
             fclose(fp);
         }
         else
         {
-            DebugMessage(M64MSG_WARNING, "Unknown game type: %d", g_GameType);
+            DebugMessage(M64MSG_WARNING, "Unknown game type: %d", game_manager_get_game());
         }
-        main_state_save(savestates_type_m64p, state_path);
+        free(replay_folder);
     }
     
-    last_game_state = game_manager_get_game_status();
+    last_game_state = current_game_state;
+
+    int current_game_screen = game_manager_get_current_screen();
+
+    if (last_game_screen == REMIX_SCREEN_SSS &&
+        current_game_screen == REMIX_SCREEN_MATCH &&
+        recording_enabled)
+    {
+        time_t now = time(0);
+        struct tm tmv;
+        localtime_s(&tmv, &now);
+        strftime(timestamp_folder, sizeof(timestamp_folder), "%Y-%m-%dT%H@%M@%S", &tmv);
+        char* replay_folder = replay_manager_generate_path(timestamp_folder);
+        // ConfigSetParameter(g_CoreConfig, "ScreenshotPath", M64TYPE_STRING, replay_folder);
+        // TakeScreenshot(l_CurrentFrame);
+        char state_path[1024];
+        snprintf(state_path, sizeof(state_path), "%s/%s", replay_folder, "state.st");
+        DebugMessage(M64MSG_INFO, "Creating replay save state: %s", state_path);
+        main_state_save(savestates_type_m64p, state_path);   
+        free(replay_folder);
+    }
+
+    last_game_screen = current_game_screen;
+
+
 #if defined(PROFILE)
     timed_sections_refresh();
 #endif
@@ -1135,8 +1160,6 @@ void new_vi(void)
 
     netplay_check_sync(&g_dev.r4300.cp0);
 
-    /* Is replay recording enabled and did a match just start this "frame"? */
-    /* If yes, make a save state. */
 }
 
 static void main_switch_pak(int control_id)
@@ -2044,14 +2067,6 @@ m64p_error main_run(void)
 
     /* Get initial game state for Jimmi replays */
     last_game_state = game_manager_get_game_status();
-    /* If watching a replay, load state */
-    int playback_enabled = playback_manager_is_enabled();
-    if (playback_enabled)
-    {
-        char state_path[4096];
-        snprintf(state_path, sizeof(state_path), "%s/state.st", playback_manager_get_path());
-        main_state_load(state_path);
-    }
 
     run_device(&g_dev);
 

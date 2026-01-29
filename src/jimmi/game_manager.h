@@ -17,16 +17,23 @@ enum {
     REMIX_RESET = 16777216,     // Initial game state
 };
 
+enum {
+    REMIX_SCREEN_CSS = 269027079,
+    REMIX_SCREEN_SSS = 353371911,
+    REMIX_SCREEN_MATCH = 370476807,
+};
+
 enum
 {
     GAME_IS_REMIX,
     GAME_IS_VANILLA,
 };
 
-int g_GameType;
-
 int game_manager_get_is_remix(uint32_t crc1, uint32_t crc2);
 int game_manager_get_game_status();
 int game_manager_get_stage_id();
+int game_manager_get_game();
+int game_manager_get_current_screen();
+int game_manager_get_last_screen();
 
 #endif /* M64P_JIMMI_GAME_MANAGER_H */

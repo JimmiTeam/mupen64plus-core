@@ -142,6 +142,24 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
     struct controller_input_compat* cin_compat = (struct controller_input_compat*)opaque;
     const uint64_t current_frame_index = frame_manager_get_frame_index();
     
+    // MID-FRAME TRANSITION CHECK:
+    // If we are in playback mode and the match is ongoing, we MUST have replay data for this frame.
+    // If not (e.g. because status changed from WAIT->ONGOING during this frame's execution,
+    // so VI interrupt didn't load replay data yet), we must load it immediately.
+    int playback_enabled = playback_manager_is_enabled();
+    int match_ongoing = game_manager_get_game_status() == REMIX_ONGOING;
+
+    if (playback_enabled && match_ongoing)
+    {
+        if (!input_manager_is_from_playback(cin_compat->control_id))
+        {
+            // We missed loading this frame in VI interrupt! Load NOW.
+             playback_manager_read_frame(current_frame_index);
+             DebugMessage(M64MSG_INFO, "Input Plugin: Emergency loaded replay frame %llu due to mid-frame transition", current_frame_index);
+        }
+    }
+
+
     /* Use the value that was already latched during VI interrupt processing
      * The latched values were set by input_plugin_poll_all_controllers_for_frame() */
     if (cin_compat->latched_frame_index != current_frame_index)
@@ -152,7 +170,7 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
         uint32_t value = 0;
         m64p_error err = M64ERR_SUCCESS;
         
-        if (playback_manager_is_enabled() && game_manager_get_game_status() == REMIX_ONGOING)
+        if (playback_enabled && match_ongoing)
         {
             /* During playback, read from input_manager (set by VI interrupt from playback file) */
             value = input_manager_get_raw(cin_compat->control_id);
@@ -176,7 +194,7 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
             cin_compat->latched_present = (err == M64ERR_SUCCESS);
             
             /* Record to input_manager */
-            input_manager_record_raw(cin_compat->control_id, current_frame_index, value);
+            input_manager_record_raw(cin_compat->control_id, current_frame_index, value, 0);
         }
 
         cin_compat->latched_frame_index = current_frame_index;
@@ -218,7 +236,7 @@ void input_plugin_poll_all_controllers_for_frame(uint64_t frame_index)
         }
 
         if (cin_compat->latched_present)
-            input_manager_record_raw(cin_compat->control_id, frame_index, cin_compat->latched_input);
+            input_manager_record_raw(cin_compat->control_id, frame_index, cin_compat->latched_input, 0);
         
         // if ((frame_index % 60) == 0)
         // {

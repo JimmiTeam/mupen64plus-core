@@ -37,10 +37,10 @@ void replay_manager_init(void)
     }
 }
 
-void replay_manager_open()
+void replay_manager_open(char* folder)
 {
     char input_path[1024];
-    snprintf(input_path, sizeof(input_path), "%s/inputs.bin", replay_path);
+    snprintf(input_path, sizeof(input_path), "%s/inputs.bin", replay_manager_generate_path(folder));
 
     FILE *file = fopen(input_path, "wb");
     if (file == NULL)
@@ -136,22 +136,18 @@ int replay_manager_set_path(char* path)
     return 1;
 }
 
-char* replay_manager_generate_path()
+char* replay_manager_generate_path(char* folder)
 {
-    char folder[1024];
-    time_t now = time(0);
-    struct tm tmv;
-    localtime_s(&tmv, &now);
-    strftime(folder, sizeof(folder), "%Y-%m-%dT%H.%M.%S", &tmv);
-    snprintf(folder, sizeof(folder), "%s/%s", replay_path, folder);
-    int dir_result = osal_mkdirp(folder, 0755);
+    char replay_folder[1024];
+    snprintf(replay_folder, sizeof(replay_folder), "%s%s", replay_path, folder);
+    int dir_result = osal_mkdirp(replay_folder, 0755);
     if (dir_result != 0)
     {
-        DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to create replay directory at path %s", folder);
+        DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to create replay directory at path %s", replay_folder);
         return NULL;
     }
     // replay_manager_set_path(folder);
-    return replay_path;
+    return strdup(replay_folder);
 }
 
 FILE* replay_manager_get_file(void)

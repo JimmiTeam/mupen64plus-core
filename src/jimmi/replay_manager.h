@@ -7,10 +7,10 @@
 void replay_manager_init(void);
 int replay_manager_is_enabled(void);
 char* replay_manager_get_path(void);
-char* replay_manager_generate_path(void);
+char* replay_manager_generate_path(char* folder);
 int replay_manager_set_path(char* path);
 FILE* replay_manager_get_file(void);
-void replay_manager_open();
+void replay_manager_open(char* folder);
 int replay_manager_write_input(FILE * file, int controller_index, uint64_t frame_index, uint32_t raw_input);
 void replay_manager_close(void);
 

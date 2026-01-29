@@ -28,6 +28,7 @@
 #include "device/r4300/r4300_core.h"
 #include "device/rcp/mi/mi_controller.h"
 #include "main/main.h"
+#include "main/savestates.h"
 #include "plugin/plugin.h"
 #include "backends/plugins_compat/plugins_compat.h"
 #include "jimmi/frame_manager.h"
@@ -182,53 +183,70 @@ void vi_vertical_interrupt_event(void* opaque)
     vi->field ^= (vi->regs[VI_STATUS_REG] >> 6) & 0x1;
 
     /* Jimmi frame logic */
-    frame_manager_on_vi_interrupt();
-    const uint64_t f = frame_manager_get_frame_index();
-    input_manager_latch_for_frame(f);
-
-    /* Handle playback if enabled, otherwise poll controllers for live input */
-    int playback_enabled = playback_manager_is_enabled();
-    int match_ongoing = game_manager_get_game_status() == REMIX_ONGOING;
+    uint64_t old_f = frame_manager_get_frame_index();
     
+    // Check game status BEFORE polling new frame to detect transitions
+    int current_game_status = game_manager_get_game_status();
+    int match_ongoing = current_game_status == REMIX_ONGOING;
+    static int last_game_status = 0;
+    int prev_was_wait = last_game_status != REMIX_ONGOING;
+    
+    int playback_enabled = playback_manager_is_enabled();
+    int replays_enabled = replay_manager_is_enabled();
+    
+    // RECORDING: If we just transitioned from WAIT -> ONGOING, we must save the PREVIOUS frame (N-1)
+    // which is currently in input_manager.
+    if (replays_enabled && !playback_enabled && prev_was_wait && match_ongoing)
+    {
+         char* replay_path = replay_manager_get_path();
+         if (replay_path != NULL)
+         {
+             FILE * replay_file = replay_manager_get_file();
+             if (replay_file != NULL)
+             {
+                 // Write input for all 4 controller ports (Data is from N-1)
+                 replay_manager_write_input(replay_file, 0, old_f, input_manager_get_raw(0));
+                 replay_manager_write_input(replay_file, 1, old_f, input_manager_get_raw(1));
+                 replay_manager_write_input(replay_file, 2, old_f, input_manager_get_raw(2));
+                 replay_manager_write_input(replay_file, 3, old_f, input_manager_get_raw(3));
+                 DebugMessage(M64MSG_INFO, "Replay Manager: Captured transition frame %llu", old_f);
+             }
+         }
+    }
+    
+    // Update Frame Index (increments to NEW frame)
+    frame_manager_on_vi_interrupt();
+    const uint64_t f_new = frame_manager_get_frame_index();
+    input_manager_latch_for_frame(f_new);
+    
+    // STARTUP REPLAY LOAD: 
+    // If this is the very first frame of a replay session, load the save state now.
+    // This ensures we are "running" (in the loop) before loading, preventing thread/context issues.
+    if (f_new == 1 && playback_enabled)
+    {
+        char state_path[4096];
+        snprintf(state_path, sizeof(state_path), "%s/state.st", playback_manager_get_path());
+        
+        // Use the async job system which is safe to call from here
+        DebugMessage(M64MSG_INFO, "Queueing initial replay save state load: %s", state_path);
+        savestates_set_job(savestates_job_load, savestates_type_m64p, state_path);
+    }
+
+    // PLAYBACK or RECORDING (Standard Frame)
     if (playback_enabled && match_ongoing)
     {
-        /* Read prerecorded inputs from playback file sequentially
-         * Note: We ignore the absolute frame numbers stored in the replay file
-         * and just play inputs in order, since each new playback session starts at frame 0 */
-        PlaybackInputRecord record;
-        FILE* playback_file = playback_manager_get_file();
-        
-        if (playback_file != NULL)
-        {
-            /* Read and inject the inputs for this frame from all 4 controller ports */
-            int record_count = 0;
-            while (playback_manager_read_input(&record) && record_count < 4)
-            {
-                /* All records for this logical frame should be read in sequence
-                 * Filter out Start button to allow pausing without affecting playback */
-                uint32_t filtered_input = record.raw_input & ~0x0010u;
-                input_manager_record_raw(record.controller_index, f, filtered_input);
-                record_count++;
-            }
-            
-            if ((f % 60) == 0 && record_count > 0)
-            {
-                DebugMessage(M64MSG_INFO, "Playback Manager: Replayed frame %llu with %d port inputs", f, record_count);
-            }
-        }
+        playback_manager_read_frame(f_new);
     }
     else
     {
         /* Poll controllers for live input */
-        input_plugin_poll_all_controllers_for_frame(f);
+        input_plugin_poll_all_controllers_for_frame(f_new);
     }
 
-    int replays_enabled = replay_manager_is_enabled();
 
     if (replays_enabled && !playback_enabled && match_ongoing)
     {
-
-        if ((f % 60) == 0)
+        if ((f_new % 60) == 0)
         {
             DebugMessage(M64MSG_INFO, "Replay Manager: Current stage id: %d", game_manager_get_stage_id());
         }
@@ -241,18 +259,20 @@ void vi_vertical_interrupt_event(void* opaque)
             {
                 // Write input for all 4 controller ports
                 int write_failed = 0;
-                write_failed |= !replay_manager_write_input(replay_file, 0, f, input_manager_get_raw(0));
-                write_failed |= !replay_manager_write_input(replay_file, 1, f, input_manager_get_raw(1));
-                write_failed |= !replay_manager_write_input(replay_file, 2, f, input_manager_get_raw(2));
-                write_failed |= !replay_manager_write_input(replay_file, 3, f, input_manager_get_raw(3));
+                write_failed |= !replay_manager_write_input(replay_file, 0, f_new, input_manager_get_raw(0));
+                write_failed |= !replay_manager_write_input(replay_file, 1, f_new, input_manager_get_raw(1));
+                write_failed |= !replay_manager_write_input(replay_file, 2, f_new, input_manager_get_raw(2));
+                write_failed |= !replay_manager_write_input(replay_file, 3, f_new, input_manager_get_raw(3));
                 
                 if (write_failed)
                 {
-                    DebugMessage(M64MSG_WARNING, "Replay Manager: Failed to write input for frame %llu", f);
+                    DebugMessage(M64MSG_WARNING, "Replay Manager: Failed to write input for frame %llu", f_new);
                 }
             }
         }
     }
+    
+    last_game_status = current_game_status;
 
 
     /* schedule next vertical interrupt */

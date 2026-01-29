@@ -10,11 +10,11 @@ typedef struct {
 
 enum {
     REMIX_WAIT = 0,             // Entered CSS after game start
-    REMIX_ONGOING = 65536,      // Match in progress
-    REMIX_PAUSED = 131072,      // Game paused
-    REMIX_UNPAUSED = 196608,    // Game unpaused
-    REMIX_MATCH_END = 458752,   // Match ended, stays like this during next CSS until SSS?
-    REMIX_RESET = 16777216,     // Initial game state
+    REMIX_ONGOING = 65536,      // VS match in progress, players are receiving inputs
+    REMIX_PAUSED = 131072,      // Game paused during VS match
+    REMIX_UNPAUSED = 196608,    // Game is coming out of a pause during a VS match (players also receiving inputs?)
+    REMIX_MATCH_END = 458752,   // Match finished, stays in this state through next CSS until SSS?
+    REMIX_RESET = 16777216,     // Initial game state on boot or reset
 };
 
 enum {

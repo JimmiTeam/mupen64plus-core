@@ -1094,8 +1094,8 @@ void new_vi(void)
     //     last_game_state, current_game_state, recording_enabled);
     
 
-    if (last_game_state == REMIX_WAIT &&
-        current_game_state == REMIX_ONGOING &&
+    if (last_game_state == REMIX_STATUS_WAIT &&
+        current_game_state == REMIX_STATUS_ONGOING &&
         recording_enabled)
     {
         replay_manager_open(timestamp_folder);

@@ -9,12 +9,12 @@ typedef struct {
 } RemixMeta;
 
 enum {
-    REMIX_WAIT = 0,             // Entered CSS after game start
-    REMIX_ONGOING = 65536,      // VS match in progress, players are receiving inputs
-    REMIX_PAUSED = 131072,      // Game paused during VS match
-    REMIX_UNPAUSED = 196608,    // Game is coming out of a pause during a VS match (players also receiving inputs?)
-    REMIX_MATCH_END = 458752,   // Match finished, stays in this state through next CSS until SSS?
-    REMIX_RESET = 16777216,     // Initial game state on boot or reset
+    REMIX_STATUS_WAIT = 0,             // Entered CSS after game start
+    REMIX_STATUS_ONGOING = 65536,      // VS match in progress, players are receiving inputs
+    REMIX_STATUS_PAUSED = 131072,      // Game paused during VS match
+    REMIX_STATUS_UNPAUSED = 196608,    // Game is coming out of a pause during a VS match (players also receiving inputs?)
+    REMIX_STATUS_MATCHEND = 458752,   // Match finished, stays in this state through next CSS until SSS?
+    REMIX_STATUS_RESET = 16777216,     // Initial game state on boot or reset
 };
 
 enum {

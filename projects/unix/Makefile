@@ -336,6 +336,25 @@ endif
 CFLAGS += $(LIBPNG_CFLAGS)
 LDLIBS += $(LIBPNG_LDLIBS)
 
+# ENet
+ENET_SOURCE = \
+    $(SUBDIR)/enet/callbacks.c \
+    $(SUBDIR)/enet/compress.c \
+    $(SUBDIR)/enet/host.c \
+    $(SUBDIR)/enet/list.c \
+    $(SUBDIR)/enet/packet.c \
+    $(SUBDIR)/enet/peer.c \
+    $(SUBDIR)/enet/protocol.c
+
+CFLAGS += -I$(SUBDIR)/enet/include
+
+ifeq ("$(OS)","MINGW")
+  ENET_SOURCE += $(SUBDIR)/enet/win32.c
+  LDLIBS += -lws2_32 -lwinmm
+else
+  ENET_SOURCE += $(SUBDIR)/enet/unix.c
+endif
+
 ifeq ($(OPENCV), 1)
   # OpenCV lib
   ifeq ($(origin OPENCV_CFLAGS) $(origin OPENCV_LDLIBS), undefined undefined)
@@ -597,7 +616,8 @@ SOURCE = \
     $(SRCDIR)/plugin/dummy_audio.c \
     $(SRCDIR)/plugin/dummy_input.c \
     $(SRCDIR)/plugin/dummy_rsp.c \
-    $(MINIZIP_SOURCE)
+    $(MINIZIP_SOURCE) \
+    $(ENET_SOURCE)
 
 # MD5 lib
 SOURCE += \

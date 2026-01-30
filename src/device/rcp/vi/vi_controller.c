@@ -188,10 +188,8 @@ void vi_vertical_interrupt_event(void* opaque)
     // Check game status BEFORE polling new frame to detect transitions
     int current_game_status = game_manager_get_game_status();
     int match_ongoing = current_game_status == REMIX_STATUS_ONGOING;
-                        current_game_status == REMIX_STATUS_UNPAUSED; // TEST
     static int last_game_status = 0;
-    int prev_was_wait = last_game_status == REMIX_STATUS_WAIT ||
-                        last_game_status == REMIX_STATUS_PAUSED; // TEST
+    int prev_was_wait = last_game_status != REMIX_STATUS_ONGOING;
     
     int playback_enabled = playback_manager_is_enabled();
     int replays_enabled = replay_manager_is_enabled();

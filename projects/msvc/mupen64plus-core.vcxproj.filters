@@ -429,6 +429,33 @@
     <ClCompile Include="..\..\src\jimmi\replay_manager.c" />
     <ClCompile Include="..\..\src\jimmi\playback_manager.c" />
     <ClCompile Include="..\..\src\jimmi\game_manager.c" />
+    <ClCompile Include="..\..\subprojects\enet\callbacks.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\compress.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\host.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\list.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\packet.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\peer.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\protocol.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\unix.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\win32.c">
+      <Filter>subprojects</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\api\callbacks.h">
@@ -785,6 +812,33 @@
     <ClInclude Include="..\..\src\jimmi\replay_manager.h" />
     <ClInclude Include="..\..\src\jimmi\playback_manager.h" />
     <ClInclude Include="..\..\src\jimmi\game_manager.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\callbacks.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\subprojects\enet\include\enet\enet.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\subprojects\enet\include\enet\list.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\subprojects\enet\include\enet\protocol.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\subprojects\enet\include\enet\time.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\subprojects\enet\include\enet\types.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\subprojects\enet\include\enet\unix.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\subprojects\enet\include\enet\utility.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\subprojects\enet\include\enet\win32.h">
+      <Filter>subprojects</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\src\device\r4300\mips_instructions.def">
@@ -798,6 +852,468 @@
     </None>
     <None Include="..\..\src\device\r4300\new_dynarec\arm64\linkage_arm64.S">
       <Filter>device\r4300\new_dynarec\arm64</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\annotated.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\callbacks_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\callbacks_8h.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\compress_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\design_8dox.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\dir_49e56c817e5e54854c35e136979f97ca.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\dir_d44c64559bbebec7f509842c48db8b23.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\dir_fd6c3a2b8754f03ff2a62b53108cf6e2.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\Downloads.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\enet_8h.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\FAQ.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\FAQ_8dox.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\Features.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\files.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\globals.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\globals_defs.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\globals_enum.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\globals_eval.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\globals_func.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\globals_m.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\globals_s.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\globals_type.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__Address.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__callbacks.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__global.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__host.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__list.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__Packet.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__peer.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__private.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\group__socket.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\host_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\index.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\Installation.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\install_8dox.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\IRCChannel.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\License.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\license_8dox.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\list_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\list_8h.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\MailingList.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\mainpage_8dox.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\modules.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\packet_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\peer_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\protocol_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\protocol_8h.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_1.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_10.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_11.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_12.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_13.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_2.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_3.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_4.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_5.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_6.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_7.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_8.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_9.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_a.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_b.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_d.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_e.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\all_f.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\classes_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\defines_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\defines_1.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\enums_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\enumvalues_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_1.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_2.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_3.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_4.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_5.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_6.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_7.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_8.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_9.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_a.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\files_b.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\functions_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\groups_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\nomatches.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_1.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_2.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_3.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_4.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_5.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_6.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\typedefs_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\typedefs_1.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_1.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_10.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_11.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_12.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_13.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_2.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_3.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_4.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_5.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_6.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_7.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_8.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_9.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_a.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_b.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_d.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_e.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_f.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetAcknowledgement.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetAddress.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetBuffer.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetCallbacks.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetChannel.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetCompressor.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetEvent.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetHost.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetIncomingCommand.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetList.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetListNode.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetOutgoingCommand.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetPacket.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetPeer.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolAcknowledge.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolBandwidthLimit.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolCommandHeader.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolConnect.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolDisconnect.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolHeader.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolPing.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolSendFragment.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolSendReliable.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolSendUnreliable.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolSendUnsequenced.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolThrottleConfigure.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolVerifyConnect.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\time_8h.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\Tutorial.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\tutorial_8dox.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\types_8h.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\unionENetProtocol.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\unix_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\unix_8h.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\usergroup0.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\utility_8h.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\win32_8c.html">
+      <Filter>subprojects</Filter>
+    </None>
+    <None Include="..\..\subprojects\enet\docs\html\win32_8h.html">
+      <Filter>subprojects</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

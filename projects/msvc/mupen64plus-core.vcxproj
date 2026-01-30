@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="ARM64_New_Dynarec_Debug|x64">
@@ -376,6 +376,17 @@
     <ClCompile Include="..\..\src\device\pif\cic.c" />
     <ClCompile Include="..\..\src\device\pif\n64_cic_nus_6105.c" />
     <ClCompile Include="..\..\src\device\pif\pif.c" />
+    <ClCompile Include="..\..\subprojects\enet\callbacks.c">
+      <ObjectFileName>$(IntDir)enet_callbacks.obj</ObjectFileName>
+    </ClCompile>
+    <ClCompile Include="..\..\subprojects\enet\compress.c" />
+    <ClCompile Include="..\..\subprojects\enet\host.c" />
+    <ClCompile Include="..\..\subprojects\enet\list.c" />
+    <ClCompile Include="..\..\subprojects\enet\packet.c" />
+    <ClCompile Include="..\..\subprojects\enet\peer.c" />
+    <ClCompile Include="..\..\subprojects\enet\protocol.c" />
+    <ClCompile Include="..\..\subprojects\enet\unix.c" />
+    <ClCompile Include="..\..\subprojects\enet\win32.c" />
     <ClCompile Include="..\..\subprojects\md5\md5.c" />
     <ClCompile Include="..\..\subprojects\minizip\ioapi.c" />
     <ClCompile Include="..\..\subprojects\minizip\unzip.c" />
@@ -672,6 +683,15 @@
     <ClInclude Include="..\..\src\device\pif\cic.h" />
     <ClInclude Include="..\..\src\device\pif\n64_cic_nus_6105.h" />
     <ClInclude Include="..\..\src\device\pif\pif.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\callbacks.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\enet.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\list.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\protocol.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\time.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\types.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\unix.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\utility.h" />
+    <ClInclude Include="..\..\subprojects\enet\include\enet\win32.h" />
     <ClInclude Include="..\..\subprojects\md5\md5.h" />
     <ClInclude Include="..\..\subprojects\minizip\crypt.h" />
     <ClInclude Include="..\..\subprojects\minizip\ioapi.h" />
@@ -795,6 +815,160 @@
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">"..\..\..\mupen64plus-win32-deps\nasm-2.16.01\x86\nasm.exe" -i ..\..\src\ -i ..\..\src\asm_defines\ -o "$(IntDir)dyna_start.obj" -f win32 -d LEADING_UNDERSCORE "%(FullPath)"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(IntDir)dyna_start.obj</Outputs>
     </CustomBuild>
+    <None Include="..\..\subprojects\enet\docs\html\annotated.html" />
+    <None Include="..\..\subprojects\enet\docs\html\callbacks_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\callbacks_8h.html" />
+    <None Include="..\..\subprojects\enet\docs\html\compress_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\design_8dox.html" />
+    <None Include="..\..\subprojects\enet\docs\html\dir_49e56c817e5e54854c35e136979f97ca.html" />
+    <None Include="..\..\subprojects\enet\docs\html\dir_d44c64559bbebec7f509842c48db8b23.html" />
+    <None Include="..\..\subprojects\enet\docs\html\dir_fd6c3a2b8754f03ff2a62b53108cf6e2.html" />
+    <None Include="..\..\subprojects\enet\docs\html\Downloads.html" />
+    <None Include="..\..\subprojects\enet\docs\html\enet_8h.html" />
+    <None Include="..\..\subprojects\enet\docs\html\FAQ.html" />
+    <None Include="..\..\subprojects\enet\docs\html\FAQ_8dox.html" />
+    <None Include="..\..\subprojects\enet\docs\html\Features.html" />
+    <None Include="..\..\subprojects\enet\docs\html\files.html" />
+    <None Include="..\..\subprojects\enet\docs\html\globals.html" />
+    <None Include="..\..\subprojects\enet\docs\html\globals_defs.html" />
+    <None Include="..\..\subprojects\enet\docs\html\globals_enum.html" />
+    <None Include="..\..\subprojects\enet\docs\html\globals_eval.html" />
+    <None Include="..\..\subprojects\enet\docs\html\globals_func.html" />
+    <None Include="..\..\subprojects\enet\docs\html\globals_m.html" />
+    <None Include="..\..\subprojects\enet\docs\html\globals_s.html" />
+    <None Include="..\..\subprojects\enet\docs\html\globals_type.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__Address.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__callbacks.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__global.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__host.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__list.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__Packet.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__peer.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__private.html" />
+    <None Include="..\..\subprojects\enet\docs\html\group__socket.html" />
+    <None Include="..\..\subprojects\enet\docs\html\host_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\index.html" />
+    <None Include="..\..\subprojects\enet\docs\html\Installation.html" />
+    <None Include="..\..\subprojects\enet\docs\html\install_8dox.html" />
+    <None Include="..\..\subprojects\enet\docs\html\IRCChannel.html" />
+    <None Include="..\..\subprojects\enet\docs\html\License.html" />
+    <None Include="..\..\subprojects\enet\docs\html\license_8dox.html" />
+    <None Include="..\..\subprojects\enet\docs\html\list_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\list_8h.html" />
+    <None Include="..\..\subprojects\enet\docs\html\MailingList.html" />
+    <None Include="..\..\subprojects\enet\docs\html\mainpage_8dox.html" />
+    <None Include="..\..\subprojects\enet\docs\html\modules.html" />
+    <None Include="..\..\subprojects\enet\docs\html\packet_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\peer_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\protocol_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\protocol_8h.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_1.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_10.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_11.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_12.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_13.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_2.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_3.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_4.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_5.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_6.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_7.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_8.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_9.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_a.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_b.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_d.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_e.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\all_f.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\classes_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\defines_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\defines_1.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\enums_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\enumvalues_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_1.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_2.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_3.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_4.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_5.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_6.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_7.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_8.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_9.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_a.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\files_b.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\functions_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\groups_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\nomatches.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_1.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_2.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_3.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_4.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_5.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\pages_6.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\typedefs_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\typedefs_1.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_1.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_10.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_11.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_12.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_13.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_2.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_3.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_4.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_5.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_6.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_7.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_8.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_9.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_a.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_b.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_d.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_e.html" />
+    <None Include="..\..\subprojects\enet\docs\html\search\variables_f.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetAcknowledgement.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetAddress.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetBuffer.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetCallbacks.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetChannel.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetCompressor.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetEvent.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetHost.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetIncomingCommand.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetList.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetListNode.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetOutgoingCommand.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetPacket.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetPeer.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolAcknowledge.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolBandwidthLimit.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolCommandHeader.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolConnect.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolDisconnect.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolHeader.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolPing.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolSendFragment.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolSendReliable.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolSendUnreliable.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolSendUnsequenced.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolThrottleConfigure.html" />
+    <None Include="..\..\subprojects\enet\docs\html\structENetProtocolVerifyConnect.html" />
+    <None Include="..\..\subprojects\enet\docs\html\time_8h.html" />
+    <None Include="..\..\subprojects\enet\docs\html\Tutorial.html" />
+    <None Include="..\..\subprojects\enet\docs\html\tutorial_8dox.html" />
+    <None Include="..\..\subprojects\enet\docs\html\types_8h.html" />
+    <None Include="..\..\subprojects\enet\docs\html\unionENetProtocol.html" />
+    <None Include="..\..\subprojects\enet\docs\html\unix_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\unix_8h.html" />
+    <None Include="..\..\subprojects\enet\docs\html\usergroup0.html" />
+    <None Include="..\..\subprojects\enet\docs\html\utility_8h.html" />
+    <None Include="..\..\subprojects\enet\docs\html\win32_8c.html" />
+    <None Include="..\..\subprojects\enet\docs\html\win32_8h.html" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{92D3FEB9-2129-41C5-8577-BCD7D961EF41}</ProjectGuid>
@@ -940,14 +1114,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_OSD;M64P_NETPLAY;M64P_PARALLEL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -958,14 +1132,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_PARALLEL;M64P_OSD;M64P_NETPLAY;__x86_64__;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -976,14 +1150,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='New_Dynarec_Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_OSD;M64P_NETPLAY;M64P_PARALLEL;NEW_DYNAREC=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -994,14 +1168,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='x86_New_Dynarec_Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\..\mupen64plus-win32-deps\capstone\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;..\..\..\mupen64plus-win32-deps\capstone\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_OSD;M64P_NETPLAY;M64P_PARALLEL;NEW_DYNAREC=1;RECOMPILER_DEBUG=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;..\..\..\mupen64plus-win32-deps\capstone\lib\x86\capstone_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;..\..\..\mupen64plus-win32-deps\capstone\lib\x86\capstone_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -1012,14 +1186,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ARM_New_Dynarec_Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\..\mupen64plus-win32-deps\capstone\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;..\..\..\mupen64plus-win32-deps\capstone\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_OSD;M64P_NETPLAY;M64P_PARALLEL;NEW_DYNAREC=1;RECOMPILER_DEBUG=3;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;..\..\..\mupen64plus-win32-deps\capstone\lib\x86\capstone_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;..\..\..\mupen64plus-win32-deps\capstone\lib\x86\capstone_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -1030,14 +1204,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='New_Dynarec_Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_PARALLEL;M64P_OSD;M64P_NETPLAY;NEW_DYNAREC=2;__x86_64__;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -1048,14 +1222,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ARM64_New_Dynarec_Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\..\mupen64plus-win32-deps\capstone\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;..\..\..\mupen64plus-win32-deps\capstone\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_PARALLEL;M64P_OSD;M64P_NETPLAY;NEW_DYNAREC=2;__x86_64__;RECOMPILER_DEBUG=4;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;..\..\..\mupen64plus-win32-deps\capstone\lib\x64\capstone_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;..\..\..\mupen64plus-win32-deps\capstone\lib\x64\capstone_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -1066,14 +1240,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='x64_New_Dynarec_Debug|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\..\mupen64plus-win32-deps\capstone\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;..\..\..\mupen64plus-win32-deps\capstone\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_PARALLEL;M64P_OSD;M64P_NETPLAY;NEW_DYNAREC=2;__x86_64__;RECOMPILER_DEBUG=2;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;..\..\..\mupen64plus-win32-deps\capstone\lib\x64\capstone_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;..\..\..\mupen64plus-win32-deps\capstone\lib\x64\capstone_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
@@ -1083,7 +1257,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_OSD;M64P_NETPLAY;M64P_PARALLEL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -1092,7 +1266,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
@@ -1104,7 +1278,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_PARALLEL;M64P_OSD;M64P_NETPLAY;__x86_64__;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -1113,7 +1287,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
@@ -1125,7 +1299,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='New_Dynarec_Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_OSD;M64P_NETPLAY;M64P_PARALLEL;NEW_DYNAREC=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -1134,7 +1308,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x86\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x86\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x86\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x86\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x86\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
@@ -1146,7 +1320,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='New_Dynarec_Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;..\..\subprojects\md5;..\..\subprojects\minizip;..\..\subprojects\oglft;..\..\subprojects\xxhash;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\include;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\include;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\include;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\include;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\include;..\..\..\mupen64plus-win32-deps\opencv-3.0.0\include;..\..\subprojects\enet\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;_CRT_SECURE_NO_DEPRECATE;DYNAREC;M64P_PARALLEL;M64P_OSD;M64P_NETPLAY;NEW_DYNAREC=2;__x86_64__;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -1155,7 +1329,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>shell32.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>shell32.lib;ws2_32.lib;winmm.lib;opengl32.lib;glu32.lib;..\..\..\mupen64plus-win32-deps\SDL2-2.26.3\lib\x64\SDL2.lib;..\..\..\mupen64plus-win32-deps\SDL2_net-2.2.0\lib\x64\SDL2_net.lib;..\..\..\mupen64plus-win32-deps\zlib-1.2.13\lib\x64\zlib.lib;..\..\..\mupen64plus-win32-deps\libpng-1.6.39\lib\x64\libpng16.lib;..\..\..\mupen64plus-win32-deps\freetype-2.13.0\lib\x64\freetype.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>

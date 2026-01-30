@@ -22,6 +22,10 @@
 #ifndef __NETPLAY_H__
 #define __NETPLAY_H__
 
+#ifdef M64P_NETPLAY
+#include <enet/enet.h>
+#endif
+
 #include "device/r4300/cp0.h"
 #include "device/pif/pif.h"
 #include "main/util.h"

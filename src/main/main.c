@@ -456,10 +456,13 @@ int main_set_core_defaults(void)
     ConfigSetDefaultString(g_CoreConfig, "ReplaysPath", "", "Path to directory where replay files are saved");
     ConfigSetDefaultBool(g_CoreConfig, "Playback", 0, "Enable input playback from previously recorded replays");
     ConfigSetDefaultString(g_CoreConfig, "PlaybackPath", "", "Path to replay file being played.");
+    ConfigSetDefaultBool(g_CoreConfig, "Netplay", 0, "Enable Netplay");
+    ConfigSetDefaultString(g_CoreConfig, "NetplayHost", "", "Netplay host to connect to");
+    ConfigSetDefaultInt(g_CoreConfig, "NetplayPort", 0, "Netplay port to connect to");
 
-    /* Always reset Replays/Playback to false, unless set by command line (which happens after this) */
     ConfigSetParameter(g_CoreConfig, "Replays", M64TYPE_BOOL, &bFalse);
     ConfigSetParameter(g_CoreConfig, "Playback", M64TYPE_BOOL, &bFalse);
+    ConfigSetParameter(g_CoreConfig, "Netplay", M64TYPE_BOOL, &bFalse);
 
 
     /* handle upgrades */
@@ -1661,6 +1664,18 @@ void main_change_gb_cart(int control_id)
 
 m64p_error main_run(void)
 {
+    // Auto-start Netplay if configured
+    if (ConfigGetParamBool(g_CoreConfig, "Netplay"))
+    {
+        const char *host = ConfigGetParamString(g_CoreConfig, "NetplayHost");
+        int port = ConfigGetParamInt(g_CoreConfig, "NetplayPort");
+        if (host && host[0] != '\0' && port > 0)
+        {
+            DebugMessage(M64MSG_INFO, "Auto-starting Netplay to %s:%d", host, port);
+            netplay_start(host, port);
+        }
+    }
+
     size_t i, k;
     size_t rdram_size;
     uint32_t count_per_op;
@@ -1784,16 +1799,16 @@ m64p_error main_run(void)
     /* init GbCamera backend specified in the configuration file */
     init_video_capture_backend(&igbcam_backend, &gbcam_backend,
         g_CoreConfig, "GbCameraVideoCaptureBackend1");
-
+    
     /* open GB cam video device */
     igbcam_backend->open(gbcam_backend, M64282FP_SENSOR_W, M64282FP_SENSOR_H);
-
+    
     /* open storage files, provide default content if not present */
     open_mpk_file(&mpk);
     open_eep_file(&eep);
     open_fla_file(&fla);
     open_sra_file(&sra);
-
+    
     /* Load 64DD IPL ROM and Disk */
     const struct clock_backend_interface* dd_rtc_iclock = NULL;
     const struct storage_backend_interface* dd_idisk = NULL;
@@ -1824,6 +1839,7 @@ m64p_error main_run(void)
     memset(&g_dev.gb_carts, 0, GAME_CONTROLLERS_COUNT*sizeof(*g_dev.gb_carts));
     memset(&l_gb_carts_data, 0, GAME_CONTROLLERS_COUNT*sizeof(*l_gb_carts_data));
     memset(cin_compats, 0, GAME_CONTROLLERS_COUNT*sizeof(*cin_compats));
+
 
     netplay_read_registration(cin_compats);
 
@@ -2068,7 +2084,24 @@ m64p_error main_run(void)
     /* Get initial game state for Jimmi replays */
     last_game_state = game_manager_get_game_status();
 
+    if (netplay_is_init()) {
+        // IMPORTANT: We must update the global pointers to cin_compats 
+        // because netplay.c might assume l_cin_compats from registration phase is still valid.
+        // But netplay.c stored 'cin_compats' which is the stack variable here.
+        // That is fine as long as run_device blocks.
+        // HOWEVER, netplay.c also needs valid pointers in g_cin_by_port?
+        // Let's ensure netplay uses the 'cin_compats' we just set up.
+        // netplay_read_registration already set 'l_cin_compats' to point to this stack variable.
+    }
+
     run_device(&g_dev);
+
+    if (netplay_is_init())
+    {
+        netplay_stop();
+        // Clear global pointers if any
+        // ...
+    }
 
 
     

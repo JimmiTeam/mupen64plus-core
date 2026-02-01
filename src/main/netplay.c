@@ -461,7 +461,28 @@ static void netplay_poll(void)
                     switch (data[0])
                     {
                         case PACKET_SYNC_DATA:
-                            // Syncing is fucked up, fix it later
+                            if (len < l_check_sync_packet_size) break;
+
+                            uint32_t sync_vi = Net_Read32(&data[1]);
+                            
+                            if (sync_vi == l_sync_vi)
+                            {
+                                int error = 0;
+                                for (int i = 0; i < CP0_REGS_COUNT; ++i)
+                                {
+                                    uint32_t val = Net_Read32(&data[(i * 4) + 5]);
+                                    if (val != l_sync_regs[i])
+                                    {
+                                        DebugMessage(M64MSG_ERROR, "Netplay: Sync Error at VI %u. Reg %d: Local %X Remote %X", (unsigned)sync_vi, i, l_sync_regs[i], val);
+                                        error = 1;
+                                    }
+                                }
+
+                                if (error)
+                                {
+                                    DebugMessage(M64MSG_ERROR, "Netplay: Synchronization failure detected.");
+                                }
+                            }
                             break;
                         case PACKET_REGISTER_PLAYER: // Server side handler
                             if (l_is_server)
@@ -978,13 +999,10 @@ void netplay_check_sync(struct cp0* cp0)
     {
         const uint32_t* cp0_regs = r4300_cp0_regs(cp0);
 
-        if (l_is_server)
+        l_sync_vi = l_vi_counter;
+        for (int i = 0; i < CP0_REGS_COUNT; ++i)
         {
-            l_sync_vi = l_vi_counter;
-            for (int i = 0; i < CP0_REGS_COUNT; ++i)
-            {
-                l_sync_regs[i] = cp0_regs[i];
-            }
+            l_sync_regs[i] = cp0_regs[i];
         }
 
         uint8_t data[ (CP0_REGS_COUNT * 4) + 5 ];
@@ -1301,7 +1319,7 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     ENetSocket sock = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
     if (sock == ENET_SOCKET_NULL)
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: failed to create UDP socket for relay CTRL");
+        DebugMessage(M64MSG_ERROR, "Netplay: failed to create socket for relay CTRL");
         return 0;
     }
 
@@ -1333,9 +1351,9 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     memcpy(&pkt[off], token, token_len); off += token_len;
 
     Net_Write16(local_data_port, &pkt[off]); off += 2;
-    pkt[off++] = 0; // flags
+    pkt[off++] = 0;
 
-    ENetBuffer b; //= { pkt, pkt_len };
+    ENetBuffer b;
     b.data = pkt;
     b.dataLength = pkt_len;
 
@@ -1345,7 +1363,7 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     DebugMessage(M64MSG_INFO, "Netplay: sending HELLO to %s:%u (token_len=%u data_port=%u)",
         relay_host, (unsigned)ctrl_port, (unsigned)token_len, (unsigned)local_data_port);
 
-    for (;;)
+    while (1)
     {
         uint32_t now = SDL_GetTicks();
 
@@ -1394,7 +1412,7 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
             }
         }
 
-        if (now - start > 10000)
+        if (now - start > 120000)
         {
             DebugMessage(M64MSG_ERROR, "Netplay: relay CTRL handshake timed out");
             break;

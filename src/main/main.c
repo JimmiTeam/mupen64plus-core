@@ -457,12 +457,15 @@ int main_set_core_defaults(void)
     ConfigSetDefaultBool(g_CoreConfig, "Playback", 0, "Enable input playback from previously recorded replays");
     ConfigSetDefaultString(g_CoreConfig, "PlaybackPath", "", "Path to replay file being played.");
     ConfigSetDefaultBool(g_CoreConfig, "Netplay", 0, "Enable Netplay");
-    ConfigSetDefaultString(g_CoreConfig, "NetplayHost", "", "Netplay host to connect to");
-    ConfigSetDefaultInt(g_CoreConfig, "NetplayPort", 0, "Netplay port to connect to");
+    ConfigSetDefaultString(g_CoreConfig, "NetplayRelayHost", "45.76.57.98", "Netplay relay host address");
+    ConfigSetDefaultString(g_CoreConfig, "NetplayToken", "", "Netplay session token");
+    ConfigSetDefaultBool(g_CoreConfig, "NetplayHosting", 0, "Netplay role (0: Client, 1: Server)");
+
 
     ConfigSetParameter(g_CoreConfig, "Replays", M64TYPE_BOOL, &bFalse);
     ConfigSetParameter(g_CoreConfig, "Playback", M64TYPE_BOOL, &bFalse);
     ConfigSetParameter(g_CoreConfig, "Netplay", M64TYPE_BOOL, &bFalse);
+    ConfigSetParameter(g_CoreConfig, "NetplayHosting", M64TYPE_BOOL, &bFalse);
 
 
     /* handle upgrades */
@@ -1095,7 +1098,7 @@ void new_vi(void)
     
     // DebugMessage(M64MSG_INFO, "Last game state: %d, Current game state: %d, Recording enabled: %d",
     //     last_game_state, current_game_state, recording_enabled);
-    
+
 
     if (last_game_state == REMIX_STATUS_WAIT &&
         current_game_state == REMIX_STATUS_ONGOING &&
@@ -1138,8 +1141,6 @@ void new_vi(void)
         localtime_s(&tmv, &now);
         strftime(timestamp_folder, sizeof(timestamp_folder), "%Y-%m-%dT%H@%M@%S", &tmv);
         char* replay_folder = replay_manager_generate_path(timestamp_folder);
-        // ConfigSetParameter(g_CoreConfig, "ScreenshotPath", M64TYPE_STRING, replay_folder);
-        // TakeScreenshot(l_CurrentFrame);
         char state_path[1024];
         snprintf(state_path, sizeof(state_path), "%s/%s", replay_folder, "state.st");
         DebugMessage(M64MSG_INFO, "Creating replay save state: %s", state_path);
@@ -1661,18 +1662,25 @@ void main_change_gb_cart(int control_id)
 * emulation thread - runs the core
 */
 
-
 m64p_error main_run(void)
 {
+
+    DebugMessage(M64MSG_INFO, "ROM MD5 hash: %s", ROM_SETTINGS.MD5);
     // Auto-start Netplay if configured
     if (ConfigGetParamBool(g_CoreConfig, "Netplay"))
     {
-        const char *host = ConfigGetParamString(g_CoreConfig, "NetplayHost");
-        int port = ConfigGetParamInt(g_CoreConfig, "NetplayPort");
-        if (host && host[0] != '\0' && port > 0)
+        const char *token = ConfigGetParamString(g_CoreConfig, "NetplayToken");
+        const char *relay = ConfigGetParamString(g_CoreConfig, "NetplayRelayHost");
+        int is_server = ConfigGetParamBool(g_CoreConfig, "NetplayHosting"); // 0=client, 1=hosting
+
+        // Fallback: If NetplayToken/NetplayRelayHost missing, try legacy mapping
+        if (!token || token[0] == '\0') token = ConfigGetParamString(g_CoreConfig, "NetplayHost");
+        if ((!relay || relay[0] == '\0')) relay = "45.76.57.98"; 
+
+        if (token && token[0])
         {
-            DebugMessage(M64MSG_INFO, "Auto-starting Netplay to %s:%d", host, port);
-            netplay_start(host, port);
+            DebugMessage(M64MSG_INFO, "Auto-starting Netplay. Relay=%s IsServer=%d", relay, is_server);
+            netplay_start(relay, token, is_server);
         }
     }
 
@@ -2083,16 +2091,6 @@ m64p_error main_run(void)
 
     /* Get initial game state for Jimmi replays */
     last_game_state = game_manager_get_game_status();
-
-    if (netplay_is_init()) {
-        // IMPORTANT: We must update the global pointers to cin_compats 
-        // because netplay.c might assume l_cin_compats from registration phase is still valid.
-        // But netplay.c stored 'cin_compats' which is the stack variable here.
-        // That is fine as long as run_device blocks.
-        // HOWEVER, netplay.c also needs valid pointers in g_cin_by_port?
-        // Let's ensure netplay uses the 'cin_compats' we just set up.
-        // netplay_read_registration already set 'l_cin_compats' to point to this stack variable.
-    }
 
     run_device(&g_dev);
 

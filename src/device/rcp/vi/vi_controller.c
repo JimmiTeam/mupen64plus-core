@@ -29,6 +29,7 @@
 #include "device/rcp/mi/mi_controller.h"
 #include "main/main.h"
 #include "main/savestates.h"
+#include "main/netplay.h"
 #include "plugin/plugin.h"
 #include "backends/plugins_compat/plugins_compat.h"
 #include "jimmi/frame_manager.h"
@@ -204,12 +205,12 @@ void vi_vertical_interrupt_event(void* opaque)
              FILE * replay_file = replay_manager_get_file();
              if (replay_file != NULL)
              {
-                 // Write input for all 4 controller ports (Data is from N-1)
-                 replay_manager_write_input(replay_file, 0, old_f, input_manager_get_raw(0));
-                 replay_manager_write_input(replay_file, 1, old_f, input_manager_get_raw(1));
-                 replay_manager_write_input(replay_file, 2, old_f, input_manager_get_raw(2));
-                 replay_manager_write_input(replay_file, 3, old_f, input_manager_get_raw(3));
-                 DebugMessage(M64MSG_INFO, "Replay Manager: Captured transition frame %llu", old_f);
+                // Write input for all 4 controller ports (Data is from N-1)
+                replay_manager_write_input(replay_file, 0, old_f, input_manager_get_raw(0));
+                replay_manager_write_input(replay_file, 1, old_f, input_manager_get_raw(1));
+                replay_manager_write_input(replay_file, 2, old_f, input_manager_get_raw(2));
+                replay_manager_write_input(replay_file, 3, old_f, input_manager_get_raw(3));
+                DebugMessage(M64MSG_INFO, "Replay Manager: Captured transition frame %llu", old_f);
              }
          }
     }
@@ -219,9 +220,6 @@ void vi_vertical_interrupt_event(void* opaque)
     const uint64_t f_new = frame_manager_get_frame_index();
     input_manager_latch_for_frame(f_new);
     
-    // STARTUP REPLAY LOAD: 
-    // If this is the very first frame of a replay session, load the save state now.
-    // This ensures we are "running" (in the loop) before loading, preventing thread/context issues.
     if (f_new == 1 && playback_enabled)
     {
         char state_path[4096];
@@ -231,8 +229,13 @@ void vi_vertical_interrupt_event(void* opaque)
         DebugMessage(M64MSG_INFO, "Queueing initial replay save state load: %s", state_path);
         savestates_set_job(savestates_job_load, savestates_type_m64p, state_path);
     }
+    else if (f_new == 1 && netplay_is_init())
+    {
+        char *state_path = "saves/smash_remix_2-0-0__rom-md5-43571020FA5DDB138BBD7F64A8C9C0D4__core-20260131.1.st";
+        DebugMessage(M64MSG_INFO, "Queueing initial netplay save state load: %s", state_path);
+        savestates_set_job(savestates_job_load, savestates_type_m64p, state_path);
+    }
 
-    // PLAYBACK or RECORDING (Standard Frame)
     if (playback_enabled && match_ongoing)
     {
         playback_manager_read_frame(f_new);

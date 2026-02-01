@@ -43,7 +43,7 @@ struct controller_input_compat;
 
 #ifdef M64P_NETPLAY
 
-m64p_error netplay_start(const char* host, int port);
+m64p_error netplay_start(const char* relay_host, const char* token, int is_server);
 m64p_error netplay_stop();
 uint8_t netplay_register_player(uint8_t player, uint8_t plugin, uint8_t rawdata, uint32_t reg_id);
 int netplay_lag();
@@ -61,7 +61,7 @@ m64p_error netplay_receive_config(char* data, int size);
 
 #else
 
-static osal_inline m64p_error netplay_start(const char* host, int port)
+m64p_error netplay_start(const char* relay_host, const char* token, int is_server);
 {
     return M64ERR_INCOMPATIBLE;
 }

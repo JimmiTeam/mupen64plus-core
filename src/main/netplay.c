@@ -44,6 +44,19 @@ static inline uint32_t Net_Read32(const void *areap)
     return ENET_NET_TO_HOST_32(temp);
 }
 
+static inline void Net_Write16(uint16_t value, void *areap)
+{
+    uint16_t temp = ENET_HOST_TO_NET_16(value);
+    memcpy(areap, &temp, 2);
+}
+
+static inline uint16_t Net_Read16(const void *areap)
+{
+    uint16_t temp;
+    memcpy(&temp, areap, 2);
+    return ENET_NET_TO_HOST_16(temp);
+}
+
 
 static int l_canFF;
 static int l_netplay_controller;
@@ -60,6 +73,14 @@ static struct controller_input_compat *l_cin_compats;
 static uint8_t l_plugin[4];
 static uint8_t l_buffer_target;
 static uint8_t l_player_lag[4];
+static uint32_t l_last_inputs[4];
+
+static uint32_t l_last_send_vi[4] = { 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu };
+static uint32_t l_cached_vi[4] = { 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu };
+static uint32_t l_cached_keys[4] = { 0u, 0u, 0u, 0u };
+
+static uint32_t l_sync_vi = 0xffffffffu;
+static uint32_t l_sync_regs[CP0_REGS_COUNT];
 
 //Packet data buffer for reassembly if needed
 static uint8_t* l_incoming_data = NULL;
@@ -69,7 +90,7 @@ static int l_client_ready = 0;
 
 static const int32_t l_check_sync_packet_size = (CP0_REGS_COUNT * 4) + 5;
 
-//Packet formats
+// //Packet formats
 #define PACKET_SEND_KEY_INFO 0
 #define PACKET_RECEIVE_KEY_INFO 1
 #define PACKET_REQUEST_KEY_INFO 2
@@ -85,125 +106,213 @@ static const int32_t l_check_sync_packet_size = (CP0_REGS_COUNT * 4) + 5;
 #define PACKET_RECEIVE_REGISTRATION 16
 #define PACKET_CLIENT_READY 17
 
+// // Relay Protocol
+#define NRLY_MAGIC_BE 0x4E524C59u
+#define NRLY_VERSION  1u
+
+typedef enum nrly_msg_type_t
+{
+    NRLY_MSG_HELLO = 0x01,
+    NRLY_MSG_READY = 0x02,
+    NRLY_MSG_ERROR = 0x03,
+    NRLY_MSG_DATA_BIND = 0x10,
+} nrly_msg_type_t;
+
+typedef enum nrly_error_code_t
+{
+    NRLY_ERR_INVALID_TOKEN      = 0x01,
+    NRLY_ERR_TOKEN_EXPIRED      = 0x02,
+    NRLY_ERR_ROLE_ALREADY_TAKEN = 0x03,
+    NRLY_ERR_UNKNOWN_ROOM       = 0x04,
+    NRLY_ERR_MALFORMED          = 0x05,
+    NRLY_ERR_RATE_LIMITED       = 0x06,
+} nrly_error_code_t;
+
+#define INPUT_BUF 256
+typedef struct {
+  uint32_t count;
+  uint32_t keys;
+  uint8_t plugin;
+  uint8_t valid;
+} input_slot;
+
+input_slot l_input_ring[4][INPUT_BUF];
+
+// #define RELAY_HOST "45.76.57.98"
+#define RELAY_DATA_PORT 27015
+#define RELAY_CTRL_PORT 27016
+
+#define NETPLAY_DEFAULT_INPUT_DELAY 9
+
 // Disconnect helper
 static void disconnect_and_cleanup(void);
 
 
-m64p_error netplay_start(const char* host, int port)
+static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
+                                const char* token, uint16_t local_data_port);
+static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
+                                uint16_t data_port, const char* token);
+
+m64p_error netplay_start(const char* relay_host, const char* token, int is_server)
 {
-    l_is_server = (host && (_stricmp(host, "server") == 0 || _stricmp(host, "host") == 0));
+    if (!relay_host || relay_host[0] == '\0' || !token || token[0] == '\0')
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: missing relay_host or token.");
+        return M64ERR_INPUT_INVALID;
+    }
+
+    l_is_server = (is_server == 1);
 
     if (enet_initialize() != 0)
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: An error occurred while initializing ENet.");
+        DebugMessage(M64MSG_ERROR, "Netplay: ENet init failed.");
         return M64ERR_SYSTEM_FAIL;
     }
 
+    // Bind ENet to a local ephemeral port so we know what to report in HELLO
+    ENetAddress local = { 0 };
+    local.host = ENET_HOST_ANY;
+    local.port = 0;
+
+    l_host = enet_host_create(&local, 1, 2, 0, 0);
+    if (!l_host)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: Failed to create ENet host.");
+        enet_deinitialize();
+        return M64ERR_SYSTEM_FAIL;
+    }
+
+    uint16_t local_port = l_host->address.port;
+    if (local_port == 0)
+    {
+        ENetAddress bound;
+        if (enet_socket_get_address(l_host->socket, &bound) == 0)
+            local_port = bound.port;
+    }
+    DebugMessage(M64MSG_INFO, "Netplay: relay_host='%s' token_len=%u is_server=%d",
+    relay_host, (unsigned)strlen(token), l_is_server);
+
+    DebugMessage(M64MSG_INFO, "Netplay: local ENet port=%u. Sending relay HELLO...", (unsigned)local_port);
+
+    // CONTROL handshake on 27016 (raw UDP, NOT ENet)
+    if (!relay_ctrl_handshake(relay_host, RELAY_CTRL_PORT, token, local_port))
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: relay control handshake failed.");
+        enet_host_destroy(l_host);
+        enet_deinitialize();
+        l_host = NULL;
+        return M64ERR_SYSTEM_FAIL;
+    }
+
+    if (!relay_data_bind(l_host->socket, relay_host, RELAY_DATA_PORT, token))
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: relay DATA_BIND failed.");
+        enet_host_destroy(l_host);
+        enet_deinitialize();
+        l_host = NULL;
+        return M64ERR_SYSTEM_FAIL;
+    }
+
+    // ENet connect to relay data port 27015
+    ENetAddress relay_addr = { 0 };
+    if (enet_address_set_host(&relay_addr, relay_host) != 0)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: Failed to resolve relay host %s", relay_host);
+        enet_host_destroy(l_host);
+        enet_deinitialize();
+        l_host = NULL;
+        return M64ERR_SYSTEM_FAIL;
+    }
+    relay_addr.port = RELAY_DATA_PORT;
+
     if (l_is_server)
     {
-        ENetAddress address;
-        address.host = ENET_HOST_ANY;
-        address.port = port;
-
-        // Create server host (32 incoming connections, 2 channels, 0 up/down bandwidth limits)
-        l_host = enet_host_create(&address, 32, 2, 0, 0);
-        if (l_host == NULL)
-        {
-            DebugMessage(M64MSG_ERROR, "Netplay: An error occurred while trying to create an ENet server host on port %d.", port);
-            return M64ERR_SYSTEM_FAIL;
-        }
-
-        DebugMessage(M64MSG_INFO, "Netplay: Server started on port %d. Waiting for client...", port);
-
-        // Wait for a client to connect (Blocking up to 60 seconds?)
-        // Since we are inside the main thread potentially before emulation loop or during init, blocking is risky but necessary for 1v1 setup.
         ENetEvent event;
-        int connected = 0;
-        uint32_t start_time = SDL_GetTicks();
+        int ok = 0;
+        uint32_t start = SDL_GetTicks();
         
-        while ((SDL_GetTicks() - start_time) < 30000) // 30s timeout
+        SDL_Delay(100);
+    
+        while ((SDL_GetTicks() - start) < 15000)
         {
-            if (enet_host_service(l_host, &event, 100) > 0)
+            int r = enet_host_service(l_host, &event, 100);
+            if (r > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
             {
-                if (event.type == ENET_EVENT_TYPE_CONNECT)
-                {
-                    DebugMessage(M64MSG_INFO, "Netplay: Client connected from %x:%u", event.peer->address.host, event.peer->address.port);
-                    l_peer = event.peer;
-                    connected = 1;
-                    break;
-                }
+                l_peer = event.peer;
+                ok = 1;
+                break;
             }
         }
-
-        if (!connected)
+    
+        if (!ok)
         {
-            DebugMessage(M64MSG_ERROR, "Netplay: No client connected within timeout.");
+            DebugMessage(M64MSG_ERROR, "Netplay: ENet connect timeout.");
+                
             enet_host_destroy(l_host);
+            enet_deinitialize();
             l_host = NULL;
             return M64ERR_SYSTEM_FAIL;
         }
     }
     else
     {
-        // Create client host (1 outgoing connection, 2 channels, 0 up/down bandwidth limits)
-        l_host = enet_host_create(NULL, 1, 2, 0, 0);
-        if (l_host == NULL)
+        l_peer = enet_host_connect(l_host, &relay_addr, 2, 0);
+        if (!l_peer)
         {
-            DebugMessage(M64MSG_ERROR, "Netplay: An error occurred while trying to create an ENet client host.");
-            return M64ERR_SYSTEM_FAIL;
-        }
-
-        ENetAddress address = { 0 };
-        if (enet_address_set_host(&address, host) != 0)
-        {
-            DebugMessage(M64MSG_ERROR, "Netplay: Failed to resolve hostname %s", host);
+            DebugMessage(M64MSG_ERROR, "Netplay: Failed to connect to relay data port.");
             enet_host_destroy(l_host);
+            enet_deinitialize();
             l_host = NULL;
             return M64ERR_SYSTEM_FAIL;
         }
-        address.port = port;
-
-        // Initiate connection
-        l_peer = enet_host_connect(l_host, &address, 2, 0);
-        if (l_peer == NULL)
-        {
-            DebugMessage(M64MSG_ERROR, "Netplay: No available peers for initiating an ENet connection.");
-            enet_host_destroy(l_host);
-            l_host = NULL;
-            return M64ERR_SYSTEM_FAIL;
-        }
-
-        // Wait up to 5 seconds for the connection to succeed
+    
         ENetEvent event;
-        int serviceResult = enet_host_service(l_host, &event, 5000);
+        int ok = 0;
+        int rejected = 0;
+        uint32_t start = SDL_GetTicks();
         
-        if (serviceResult > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
+        SDL_Delay(100);
+    
+        while ((SDL_GetTicks() - start) < 15000)
         {
-            DebugMessage(M64MSG_INFO, "Netplay: Connection to %s:%d succeeded.", host, port);
+            int r = enet_host_service(l_host, &event, 100);
+            if (r > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
+            {
+                ok = 1;
+                break;
+            }
+            if (r > 0 && event.type == ENET_EVENT_TYPE_DISCONNECT)
+            {
+                rejected = 1;
+                break;
+            }
         }
-        else
+    
+        if (!ok)
         {
-            if (serviceResult == 0)
-                DebugMessage(M64MSG_ERROR, "Netplay: Connection to %s:%d timed out.", host, port);
-            else if (serviceResult > 0)
-                DebugMessage(M64MSG_ERROR, "Netplay: Connection failed with event type %d.", event.type);
+            if (rejected)
+                DebugMessage(M64MSG_ERROR, "Netplay: Connection rejected by Relay.");
             else
-                DebugMessage(M64MSG_ERROR, "Netplay: An error occurred while servicing the host.");
-
+                DebugMessage(M64MSG_ERROR, "Netplay: ENet connect timeout.");
+                
             enet_peer_reset(l_peer);
             enet_host_destroy(l_host);
+            enet_deinitialize();
             l_host = NULL;
             l_peer = NULL;
             return M64ERR_SYSTEM_FAIL;
         }
     }
 
+    // Now proceed with your existing protocol (PACKET_*), no NRLY over ENet.
     for (int i = 0; i < 4; ++i)
     {
         l_netplay_control[i] = -1;
         l_plugin[i] = 0;
         l_player_lag[i] = 0;
+        l_last_inputs[i] = 0;
         l_early_events[i] = NULL;
+        for (int j = 0; j < INPUT_BUF; ++j) l_input_ring[i][j].valid = 0;
     }
 
     l_canFF = 0;
@@ -213,11 +322,15 @@ m64p_error netplay_start(const char* host, int port)
     l_vi_counter = 0;
     l_status = 0;
     l_reg_id = 0;
-    l_incoming_data = NULL;
+    l_buffer_target = NETPLAY_DEFAULT_INPUT_DELAY;
+
+    if (l_incoming_data) { free(l_incoming_data); l_incoming_data = NULL; }
     l_incoming_size = 0;
 
+    DebugMessage(M64MSG_INFO, "Netplay: connected. is_server=%d", l_is_server);
     return M64ERR_SUCCESS;
 }
+
 
 m64p_error netplay_stop()
 {
@@ -254,6 +367,8 @@ m64p_error netplay_stop()
         }
         l_early_events[i] = NULL;
     }
+
+    return M64ERR_SUCCESS;
 }
 
 static void disconnect_and_cleanup(void)
@@ -311,29 +426,23 @@ static uint8_t buffer_size(uint8_t control_id)
 static int check_valid(uint8_t control_id, uint32_t count)
 {
     //Check if we already have this event recorded locally, returns 1 if we do
-    struct netplay_event* current = l_cin_compats[control_id].event_first;
-    while (current != NULL)
-    {
-        if (current->count == count) //event already recorded
-            return 1;
-        current = current->next;
-    }
+    int idx = count % INPUT_BUF;
+    if (l_input_ring[control_id][idx].valid && l_input_ring[control_id][idx].count == count)
+        return 1;
     return 0;
 }
 
-// Replaces netplay_process
 static void netplay_poll(void)
 {
     ENetEvent event;
     // Only poll if we don't have pending data waiting to be consumed
-    if (l_incoming_data != NULL) return;
+    // if (l_incoming_data != NULL) return;
 
     while (enet_host_service(l_host, &event, 0) > 0)
     {
         switch (event.type)
         {
             case ENET_EVENT_TYPE_CONNECT:
-                // New connection? We aren't a server, so we shouldn't get many of these except our own init
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
                 DebugMessage(M64MSG_ERROR, "Netplay: Disconnected from server.");
@@ -342,6 +451,9 @@ static void netplay_poll(void)
             case ENET_EVENT_TYPE_RECEIVE:
                 // Handle packet
                 {
+                    DebugMessage(M64MSG_INFO, "Netplay: channel ID: %u, packet len: %u",
+                                 (unsigned)event.channelID,
+                                 (unsigned)event.packet->dataLength);
                     uint8_t* data = event.packet->data;
                     size_t len = event.packet->dataLength;
                     
@@ -353,13 +465,36 @@ static void netplay_poll(void)
 
                     switch (data[0])
                     {
+                        case PACKET_SYNC_DATA:
+                            // Sync data implementation is currently broken and corrupts VI state.
+                            // Ignoring to prevent desync/slowdown.
+                            break;
+                            /* 
+                            if (l_is_server)
+                            {
+                                if (len < l_check_sync_packet_size) break;
+                                // Recursing here is bad: netplay_check_sync((struct cp0*)&data[1]);
+
+                            }
+                            else
+                            {
+                                if (len < 5) break;
+                                // Bad parsing logic:
+                                // uint8_t status = data[1];
+                                // uint32_t vi_counter = Net_Read32(&data[2]);
+
+                                // l_status = status;
+                                // l_vi_counter = vi_counter;
+                            }
+                            break; 
+                            */
                         case PACKET_REGISTER_PLAYER: // Server side handler
                             if (l_is_server)
                             {
                                 if (len < 8) break;
                                 // Client registering. ACK with [player_id, buffer_target]
                                 uint8_t player_id = data[1];
-                                uint8_t resp[2] = { player_id, 5 }; // Buffer target 5?
+                                uint8_t resp[2] = { player_id, (uint8_t)l_buffer_target };
                                 ENetPacket* p = enet_packet_create(resp, 2, ENET_PACKET_FLAG_RELIABLE);
                                 enet_peer_send(event.peer, 0, p);
                             }
@@ -380,7 +515,7 @@ static void netplay_poll(void)
                                 resp[0] = PACKET_RECEIVE_REGISTRATION;
                                 
                                 uint32_t curr = 1;
-                                // P1 (Server)
+                                // P1 (Host)
                                 Net_Write32(1, &resp[curr]); curr+=4; // ID!=0 means present
                                 resp[curr++] = PLUGIN_NONE; resp[curr++] = 0;
                                 // P2 (Client)
@@ -407,43 +542,29 @@ static void netplay_poll(void)
                                 uint32_t keys = Net_Read32(&data[6]);
                                 uint8_t plugin = data[10];
 
-                                // Validation: Player ID must be valid (1 for P2?)
+                                // Validation: Player ID must be valid
                                 if (player > 3) break;
 
                                 // Validation: Check l_cin_compats pointer safety
                                 if (l_cin_compats == NULL) 
                                 {
-                                     // This can happen if a packet arrives before 'netplay_read_registration' calls 'l_cin_compats = ...' 
-                                     // or after 'main_run' exits.
-                                     // Discard.
                                      break;
                                 }
 
                                 // Store locally
-                                // Check pointer before dereference
                                 struct controller_input_compat* pComp = &l_cin_compats[player];
-                                
-                                if (((count - pComp->netplay_count) <= (UINT32_MAX / 2)) && (!check_valid(player, count)))
+                                if (count + 240u < l_vi_counter)
                                 {
-                                    struct netplay_event* new_event = (struct netplay_event*)malloc(sizeof(struct netplay_event));
-                                    new_event->count = count;
-                                    new_event->buttons = keys;
-                                    new_event->plugin = plugin;
-                                    new_event->next = pComp->event_first;
-                                    pComp->event_first = new_event;
-                                
-                                    // Echo to Client
-                                    uint8_t echo_data[14];
-                                    echo_data[0] = PACKET_RECEIVE_KEY_INFO;
-                                    echo_data[1] = player; // P2's input
-                                    echo_data[2] = l_status;
-                                    echo_data[3] = 0;
-                                    echo_data[4] = 1;
-                                    Net_Write32(count, &echo_data[5]);
-                                    Net_Write32(keys, &echo_data[9]);
-                                    echo_data[13] = plugin;
-                                    ENetPacket* p = enet_packet_create(echo_data, 14, ENET_PACKET_FLAG_RELIABLE);
-                                    enet_peer_send(event.peer, 1, p);
+                                    DebugMessage(M64MSG_WARNING, "Netplay: Dropping P%u input for count %u (too old, VI %u)", player+1, count, l_vi_counter);
+                                    break;
+                                }
+                                if (!check_valid(player, count))
+                                {
+                                    int idx = count % INPUT_BUF;
+                                    l_input_ring[player][idx].count = count;
+                                    l_input_ring[player][idx].keys = keys;
+                                    l_input_ring[player][idx].plugin = plugin;
+                                    l_input_ring[player][idx].valid = 1;
                                 }
                             }
                             break;
@@ -463,49 +584,10 @@ static void netplay_poll(void)
                             
                             l_player_lag[player] = lag;
 
-                            // Buffer packets if l_cin_compats is not yet set
-                            if (l_cin_compats == NULL)
-                            {
-                                 // DebugMessage(M64MSG_INFO, "Netplay: Buffering early input P%u Frame %u", player+1, count_dbg);
-                                 
-                                 size_t curr = 5;
-                                 for (int i = 0; i < count_events; ++i)
-                                 {
-                                     if (curr + 9 > len) break;
-                                     uint32_t count = Net_Read32(&data[curr]);
-                                     curr += 4;
-                                     uint32_t keys = Net_Read32(&data[curr]);
-                                     curr += 4;
-                                     uint8_t plugin = data[curr];
-                                     curr += 1;
-                                     
-                                     // Insert into early buffer
-                                     struct netplay_event* new_event = (struct netplay_event*)malloc(sizeof(struct netplay_event));
-                                     new_event->count = count;
-                                     new_event->buttons = keys;
-                                     new_event->plugin = plugin;
-                                     // Append at head (LIFO reversed? No, we will append properly flush)
-                                     // Actually, if we just push to Head, they are in reverse order of arrival?
-                                     // Wait, 'netplay_get_input' searches regardless of order.
-                                     // So order doesn't matter for correctness, only efficiency.
-                                     // But if we receive duplicate counts, we filter.
-                                     // Here we don't filter (no l_cin_count to check against).
-                                     // We just stuff them all in.
-                                     
-                                     new_event->next = l_early_events[player];
-                                     l_early_events[player] = new_event;
-                                 }
-                                 break;
-                            }
-
-                            // Validation: l_cin_compats must be valid
-                            // (Redundant check if we handled NULL above, but kept for clarity/safety of below code)
-                            if (l_cin_compats == NULL)
-                            {
-                                break;
-                            }
+                            // Ring Buffer Implementation - Handles both early and normal cases
                             
-                            if (current_status != l_status)
+                            // Check desync if we are running
+                            if (l_cin_compats != NULL && current_status != l_status)
                             {
                                 if (((current_status & 0x1) ^ (l_status & 0x1)) != 0)
                                     DebugMessage(M64MSG_ERROR, "Netplay: players have de-synced at VI %u", l_vi_counter);
@@ -529,51 +611,14 @@ static void netplay_poll(void)
                                 uint8_t plugin = data[curr];
                                 curr += 1;
                                 
-                                // Double check pointer safey
-                                if (l_cin_compats == NULL) break;
-
-                                struct controller_input_compat* pComp = &l_cin_compats[player];
-
-                                if (check_valid(player, count))
-                                {
-                                     continue;
-                                }
-
-                                if ((count - pComp->netplay_count) > (UINT32_MAX / 2))
-                                {
-                                     continue;
-                                }
-                                
-                                // Insert event
-                                struct netplay_event* new_event = (struct netplay_event*)malloc(sizeof(struct netplay_event));
-                                new_event->count = count;
-                                new_event->buttons = keys;
-                                new_event->plugin = plugin;
-                                
-                                // Insert at tail? Or Head?
-                                // The original code inserted at Head. 'next = event_first'.
-                                // But `netplay_get_input` searches the list linearly.
-                                // Order implies LIFO?
-                                // If packets come out of order, we need to sort?
-                                // TCP/Reliable guarantees order.
-                                // So we insert at Head. 
-                                // BUT: If we insert 0, then 1. List: 1 -> 0.
-                                // `get_input` search for 0. Found.
-                                // Then search for 1. Found.
-                                // This works.
-                                
-                                new_event->next = pComp->event_first;
-                                pComp->event_first = new_event;
+                                int idx = count % INPUT_BUF;
+                                l_input_ring[player][idx].count = count;
+                                l_input_ring[player][idx].keys = keys;
+                                l_input_ring[player][idx].plugin = plugin;
+                                l_input_ring[player][idx].valid = 1;
                             }
                             break;
                         }
-                        // Other packet types processed in their specific contexts if blocking,
-                        // or ignoring them here if handled elsewhere?
-                        // For a clean ENet loop, we should ideally handle ALL packets here or put them in a queue.
-                        // However, strictly preserving the existing blocking logic for some ops (like getting registration) 
-                        // might be easier if we just ignore them here and consume them in the specialized functions.
-                        // BUT ENet doesn't allow "peeking" easily without servicing. 
-                        // We will buffer unexpected packets if we need to implement blocking waits.
                         default:
                             if (l_incoming_data == NULL)
                             {
@@ -586,8 +631,6 @@ static void netplay_poll(void)
                             }
                             else
                             {
-                                // This should strictly not happen if we check l_incoming_data at top of function
-                                // But if a logic error occurs...
                                 free(l_incoming_data);
                                 l_incoming_data = malloc(len);
                                 memcpy(l_incoming_data, data, len);
@@ -623,133 +666,79 @@ static void netplay_delete_event(struct netplay_event* current, uint8_t control_
     free(current);
 }
 
-static uint32_t netplay_get_input(uint8_t control_id)
+static uint32_t netplay_get_input_for_vi(uint8_t control_id, uint32_t vi)
 {
     uint32_t keys = 0;
-    
-    // Safety: If there is leftover blob data during gameplay, it's garbage/desync.
-    // Discard it so we don't deadlock netplay_poll.
-    if (l_incoming_data != NULL)
-    {
-         DebugMessage(M64MSG_WARNING, "Netplay: Discarding unexpected data blob during input loop (%zu bytes)", l_incoming_size);
-         free(l_incoming_data); 
-         l_incoming_data = NULL;
-    }
     
     // Process incoming packets
     netplay_poll();
 
-    // With ENet, we don't need to manually request retransmission (reliable packets).
-    // We just wait for the data to arrive.
-    // However, we MUST service the host to get the packets.
-
-    //l_buffer_target is set by the server upon registration
-    //l_player_lag is how far behind we are from the lead player
-    //buffer_size is the local buffer size
-    if (l_player_lag[control_id] > 0 && buffer_size(control_id) > l_buffer_target)
+    main_core_state_set(M64CORE_SPEED_LIMITER, 1);
+    l_canFF = 0;
+    
+    // 1. Wait/Poll loop (with timeout) - Symmetric: Host waits for Client too.
+    // 500ms timeout prevents hangs but allows enough time for latent packets to prevent desync.
+    uint32_t start_wait = SDL_GetTicks();
+    while (!check_valid(control_id, vi) && (SDL_GetTicks() - start_wait) < 500)
     {
-        l_canFF = 1;
-        main_core_state_set(M64CORE_SPEED_LIMITER, 0);
-    }
-    else
-    {
-        main_core_state_set(M64CORE_SPEED_LIMITER, 1);
-        l_canFF = 0;
-    }
-
-    // Wait for validity (Blocking, but servicing ENet)
-    uint32_t timeout = SDL_GetTicks() + 10000;
-    while (!check_valid(control_id, l_cin_compats[control_id].netplay_count))
-    {
-        // Safety check inside the wait loop too
-        if (l_incoming_data != NULL)
-        {
-             free(l_incoming_data); 
-             l_incoming_data = NULL;
-        }
-
-        if (!l_netplay_is_init || SDL_GetTicks() > timeout)
-        {
-             DebugMessage(M64MSG_ERROR, "Netplay: Timed out waiting for input (or lost connection).");
-             main_core_state_set(M64CORE_EMU_STATE, M64EMU_STOPPED);
-             return 0;
-        }
-        
-        // We aren't requesting input anymore, just servicing the connection
         netplay_poll();
+        if (check_valid(control_id, vi)) break;
         SDL_Delay(1);
     }
 
-    // Found it
-    struct netplay_event* current = l_cin_compats[control_id].event_first;
-    while (current->count != l_cin_compats[control_id].netplay_count)
-        current = current->next;
-    keys = current->buttons;
-    Controls[control_id].Plugin = current->plugin;
-    netplay_delete_event(current, control_id);
-    ++l_cin_compats[control_id].netplay_count;
-
-    return keys;
-}
-
-static void netplay_send_input(uint8_t control_id, uint32_t keys)
-{
-    if (l_is_server)
+    if (check_valid(control_id, vi))
     {
-         // We are the server (P1 usually). We have generated input 'keys' for 'control_id'.
-         
-         // Store it locally immediately.
-         if (!check_valid(control_id, l_cin_compats[control_id].netplay_count)) 
-         {
-             struct netplay_event* new_event = (struct netplay_event*)malloc(sizeof(struct netplay_event));
-             new_event->count = l_cin_compats[control_id].netplay_count;
-             new_event->buttons = keys;
-             new_event->plugin = l_plugin[control_id]; // assume generic
-             new_event->next = l_cin_compats[control_id].event_first;
-             l_cin_compats[control_id].event_first = new_event;
-         }
-         
-         // Broadcast to Client
-         // Note: We used to broadcast in the 'if !check_valid' block.
-         // But if we generated it, we WANT to broadcast it.
-         // Wait, if it was 'valid', it means we ALREADY generated it?
-         // Is it possible to generate the same frame twice?
-         // Yes, if update_pif_ram is called twice for field/frame?
-         // Standard N64 is 60VI/s. One Update per VI.
-         // If we rebroadcast, it's safer than dropping?
-         // Clients handle duplicates.
-         // But let's stick to only broadcasting NEW events.
-         
-         uint8_t echo_data[14];
-         echo_data[0] = PACKET_RECEIVE_KEY_INFO;
-         echo_data[1] = control_id;
-         echo_data[2] = l_status; 
-         echo_data[3] = 0; 
-         echo_data[4] = 1; 
-         Net_Write32(l_cin_compats[control_id].netplay_count, &echo_data[5]);
-         Net_Write32(keys, &echo_data[9]);
-         echo_data[13] = l_plugin[control_id];
-         
-         ENetPacket* p = enet_packet_create(echo_data, 14, ENET_PACKET_FLAG_RELIABLE);
-         enet_peer_send(l_peer, 0, p);
-         enet_host_flush(l_host);
+        int idx = vi % INPUT_BUF;
+        keys = l_input_ring[control_id][idx].keys;
+        Controls[control_id].Plugin = l_input_ring[control_id][idx].plugin;
+        l_last_inputs[control_id] = keys;
     }
     else
     {
-        uint8_t data[11];
-        data[0] = PACKET_SEND_KEY_INFO;
-        data[1] = control_id;
-        Net_Write32(l_cin_compats[control_id].netplay_count, &data[2]);
-        Net_Write32(keys, &data[6]);
-        data[10] = l_plugin[control_id];
+        // 3. Lag Compensation: Use last known input immediately
+        keys = l_last_inputs[control_id];
+    }
+    
+    return keys;
+}
 
-        // Use Channel 1 for Input (Reliable)
-        ENetPacket* packet = enet_packet_create(data, 11, ENET_PACKET_FLAG_RELIABLE);
-        enet_peer_send(l_peer, 1, packet);
-        
-        // Flush periodically or rely on auto-flush? 
-        // Usually enet_host_service flushes, but we want to send NOW.
-        enet_host_flush(l_host);
+static void netplay_insert_local_event(uint8_t control_id, uint32_t vi, uint32_t keys)
+{
+    int idx = vi % INPUT_BUF;
+    l_input_ring[control_id][idx].count = vi;
+    l_input_ring[control_id][idx].keys = keys;
+    l_input_ring[control_id][idx].plugin = l_plugin[control_id];
+    l_input_ring[control_id][idx].valid = 1;
+}
+
+static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32_t keys)
+{
+    if (l_is_server)
+    {
+        uint8_t pkt[14];
+        pkt[0] = PACKET_RECEIVE_KEY_INFO;
+        pkt[1] = control_id;
+        pkt[2] = l_status;
+        pkt[3] = 0;
+        pkt[4] = 1;
+        Net_Write32(vi, &pkt[5]);
+        Net_Write32(keys, &pkt[9]);
+        pkt[13] = l_plugin[control_id];
+
+        ENetPacket* p = enet_packet_create(pkt, 14, 0);
+        enet_peer_send(l_peer, 0, p);
+    }
+    else
+    {
+        uint8_t pkt[11];
+        pkt[0] = PACKET_SEND_KEY_INFO;
+        pkt[1] = control_id;
+        Net_Write32(vi, &pkt[2]);
+        Net_Write32(keys, &pkt[6]);
+        pkt[10] = l_plugin[control_id];
+
+        ENetPacket* p = enet_packet_create(pkt, 11, 0);
+        enet_peer_send(l_peer, 1, p);
     }
 }
 
@@ -778,15 +767,8 @@ uint8_t netplay_register_player(uint8_t player, uint8_t plugin, uint8_t rawdata,
     while ((SDL_GetTicks() - start) < 5000)
     {
         netplay_poll();
-        if (l_incoming_data && l_incoming_size >= 2) // Assuming raw bytes come in buffer
+        if (l_incoming_data && l_incoming_size >= 2)
         {
-             // Verify it's what we want? 
-             // In this simple port, we assume the first thing hitting the "default" buffer is our response.
-             // The server response for register is just 2 raw bytes in previous code, not a packet ID?
-             // Actually, the previous code used TCP raw stream.
-             // WE NEED TO CHANGE THE SERVER TO SEND PACKETS WITH IDs if we were rewriting server too.
-             // Assuming we wrap the response in a packet or just parse the data. 
-             // Let's assume the server sends the same 2 bytes but inside an ENet packet.
              memcpy(response, l_incoming_data, 2);
              free(l_incoming_data); l_incoming_data = NULL;
              break;
@@ -856,19 +838,13 @@ file_status_t netplay_read_storage(const char *filename, void *data, size_t size
             {
                 if (l_incoming_data[0] == PACKET_RECEIVE_SAVE)
                 {
-                    // Check if extension matches?
-                    // The request packet format: [ID(1)] [ExtString(\0)]
-                    // We assume sequential processing so order matches.
                     got_request = 1;
                     free(l_incoming_data); l_incoming_data = NULL;
                     break;
                 }
                 else
                 {
-                     // Wrong packet? Ignore and free to continue polling?
-                     // If we get Settings packet while waiting for Save, that's bad sync.
-                     // For now, discard.
-                     free(l_incoming_data); l_incoming_data = NULL;
+                    free(l_incoming_data); l_incoming_data = NULL;
                 }
             }
             SDL_Delay(1);
@@ -945,9 +921,6 @@ file_status_t netplay_read_storage(const char *filename, void *data, size_t size
                         {
                             memcpy(data, &l_incoming_data[curr], size);
                             
-                            // Check for "no save" indicator? (All zeros)
-                            // The host sends all zeros if file didn't exist.
-                            // We check sum.
                             char *data_array = data;
                             int sum = 0;
                             for (int i = 0; i < size; ++i)
@@ -980,12 +953,6 @@ void netplay_sync_settings(uint32_t *count_per_op, uint32_t *count_per_op_denom_
     if (!netplay_is_init())
         return;
 
-    // Use Host mode flag to determine authority, OR existing controller logic if already set?
-    // At this point (main_run), controller logic might not be set yet if we haven't done registration?
-    // netplay_sync_settings is called at L1750, netplay_read_registration is L1844.
-    // So controller mapping is NOT set yet.
-    // We must rely on l_is_server.
-
     char output_data[SETTINGS_SIZE + 1];
     uint8_t request;
     
@@ -1007,15 +974,6 @@ void netplay_sync_settings(uint32_t *count_per_op, uint32_t *count_per_op_denom_
     }
     else
     {
-        // Client waits for settings
-        // Wait for response (Server pushes it, or we request and wait?)
-        // In the old code, client requested REQUEST_SETTINGS or something?
-        // Old code: if (l_netplay_control[0] != -1) SEND else RECEIVE
-        
-        // Let's assume server just Sends them proactively or we need to handshake.
-        // To be safe, let's just wait for the packet. Host will send it.
-        
-        // Wait for response
         if (l_incoming_data) { free(l_incoming_data); l_incoming_data = NULL; }
         
         uint32_t start = SDL_GetTicks();
@@ -1026,7 +984,6 @@ void netplay_sync_settings(uint32_t *count_per_op, uint32_t *count_per_op_denom_
             {
                 if (l_incoming_data[0] == PACKET_SEND_SETTINGS && l_incoming_size >= SETTINGS_SIZE + 1)
                 {
-                    // Correctly skip the header byte (Packet ID)
                     memcpy(output_data, l_incoming_data + 1, SETTINGS_SIZE); 
                     free(l_incoming_data); l_incoming_data = NULL;
                     
@@ -1040,7 +997,6 @@ void netplay_sync_settings(uint32_t *count_per_op, uint32_t *count_per_op_denom_
                 }
                 else
                 {
-                    // Wrong packet (maybe delayed save packet?), discard
                     free(l_incoming_data); l_incoming_data = NULL;
                 }
             }
@@ -1051,15 +1007,21 @@ void netplay_sync_settings(uint32_t *count_per_op, uint32_t *count_per_op_denom_
 
 void netplay_check_sync(struct cp0* cp0)
 {
-    //This function is used to check if games have desynced
-    //Every 600 VIs, it sends the value of the CP0 registers to the server
-    //The server will compare the values, and update the status byte if it detects a desync
     if (!netplay_is_init())
         return;
 
     if (l_vi_counter % 600 == 0)
     {
         const uint32_t* cp0_regs = r4300_cp0_regs(cp0);
+
+        if (l_is_server)
+        {
+            l_sync_vi = l_vi_counter;
+            for (int i = 0; i < CP0_REGS_COUNT; ++i)
+            {
+                l_sync_regs[i] = cp0_regs[i];
+            }
+        }
 
         uint8_t data[ (CP0_REGS_COUNT * 4) + 5 ];
 
@@ -1072,7 +1034,6 @@ void netplay_check_sync(struct cp0* cp0)
         
         ENetPacket* packet = enet_packet_create(data, (CP0_REGS_COUNT * 4) + 5, ENET_PACKET_FLAG_RELIABLE);
         enet_peer_send(l_peer, 0, packet);
-        // enet_host_flush(l_host); // Optional, can be aggregated 
     }
 
     ++l_vi_counter;
@@ -1090,10 +1051,6 @@ static void netplay_flush_early_buffer(void)
             while (ev)
             {
                 struct netplay_event* next = ev->next;
-                
-                // Add to cin_compats list
-                // Since this is init, cin_compats list is likely empty.
-                // But let's just push to Head.
                 ev->next = l_cin_compats[i].event_first;
                 l_cin_compats[i].event_first = ev;
                 
@@ -1119,25 +1076,17 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
 
     if (l_is_server)
     {
-        // We are the server, we define the registration.
-        // For this simple 1v1 port, we hardcode:
-        // P1 = Local (Server)
-        // P2 = Remote (Client)
-        // P3/P4 = Empty
-        
-        // P1
         Controls[0].Present = 1;
-        Controls[0].Plugin = PLUGIN_NONE; // Standard
+        Controls[0].Plugin = PLUGIN_NONE;
         Controls[0].RawData = 0;
         l_plugin[0] = PLUGIN_NONE;
-        netplay_set_controller(0); // We control P1
+        netplay_set_controller(0);
 
         //P2 (Client)
         Controls[1].Present = 1;
         Controls[1].Plugin = PLUGIN_NONE;
         Controls[1].RawData = 0;
         l_plugin[1] = PLUGIN_NONE;
-        // P2 is remote, we don't 'set_controller' (which implies local control)
 
         // P3/P4
         Controls[2].Present = 0;
@@ -1149,6 +1098,9 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
         uint32_t start = SDL_GetTicks();
         while ((SDL_GetTicks() - start) < 30000) 
         {
+             // Safety: Clear unused incoming data to prevent netplay_poll deadlock
+             if (l_incoming_data) { free(l_incoming_data); l_incoming_data = NULL; }
+
              netplay_poll();
              if (l_client_ready) break;
              SDL_Delay(10);
@@ -1183,7 +1135,6 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
         }
         else if (l_incoming_data)
         {
-             // Wrong packet?
              free(l_incoming_data); l_incoming_data = NULL;
         }
         SDL_Delay(10);
@@ -1197,7 +1148,7 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
 
         Controls[i].Type = CONT_TYPE_STANDARD; //make sure VRU is disabled
 
-        if (reg_id == 0) //No one registered to control this player
+        if (reg_id == 0)
         {
             Controls[i].Present = 0;
             Controls[i].Plugin = PLUGIN_NONE;
@@ -1207,9 +1158,9 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
         else
         {
             Controls[i].Present = 1;
-            if (i > 0 && input_data[curr] == PLUGIN_MEMPAK) // only P1 can use mempak
+            if (i > 0 && input_data[curr] == PLUGIN_MEMPAK)
                 Controls[i].Plugin = PLUGIN_NONE;
-            else if (input_data[curr] == PLUGIN_TRANSFER_PAK) // Transferpak not supported during netplay
+            else if (input_data[curr] == PLUGIN_TRANSFER_PAK)
                 Controls[i].Plugin = PLUGIN_NONE;
             else
                 Controls[i].Plugin = input_data[curr];
@@ -1218,9 +1169,7 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
             Controls[i].RawData = input_data[curr];
             ++curr;
             
-            // If the reg_id matches our requested ID (Client is P2), assume control?
-            // In the simplified server logic, P2 is always the client.
-            if (i == 1) // Hardcode Client = P2
+            if (i == 1)
             {
                netplay_set_controller(1);
             }
@@ -1247,18 +1196,31 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
 
 static void netplay_send_raw_input(struct pif* pif)
 {
+    uint32_t vi = l_vi_counter;
     for (int i = 0; i < 4; ++i)
     {
         if (l_netplay_control[i] != -1)
         {
             if (pif->channels[i].tx && pif->channels[i].tx_buf[0] == JCMD_CONTROLLER_READ)
-                netplay_send_input(i, *(uint32_t*)pif->channels[i].rx_buf);
+            {
+                if (l_last_send_vi[i] == vi)
+                    continue;
+                l_last_send_vi[i] = vi;
+
+                uint32_t keys_now = *(uint32_t*)pif->channels[i].rx_buf;
+                uint32_t target_vi = vi + (uint32_t)l_buffer_target;
+
+                netplay_insert_local_event((uint8_t)i, target_vi, keys_now);
+
+                netplay_send_scheduled_input((uint8_t)i, target_vi, keys_now);
+            }
         }
     }
 }
 
 static void netplay_get_raw_input(struct pif* pif)
 {
+    uint32_t vi = l_vi_counter;
     for (int i = 0; i < 4; ++i)
     {
         if (Controls[i].Present == 1)
@@ -1269,7 +1231,19 @@ static void netplay_get_raw_input(struct pif* pif)
 
                 if(pif->channels[i].tx_buf[0] == JCMD_CONTROLLER_READ)
                 {
-                    *(uint32_t*)pif->channels[i].rx_buf = netplay_get_input(i);
+                    if (l_cached_vi[i] != vi)
+                    {
+                        if (vi < (uint32_t)l_buffer_target)
+                        {
+                            l_cached_keys[i] = 0;
+                        }
+                        else
+                        {
+                            l_cached_keys[i] = netplay_get_input_for_vi((uint8_t)i, vi);
+                        }
+                        l_cached_vi[i] = vi;
+                    }
+                    *(uint32_t*)pif->channels[i].rx_buf = l_cached_keys[i];
                 }
                 else if ((pif->channels[i].tx_buf[0] == JCMD_STATUS || pif->channels[i].tx_buf[0] == JCMD_RESET) && Controls[i].RawData)
                 {
@@ -1345,4 +1319,184 @@ m64p_error netplay_receive_config(char* data, int size)
     }
     else
         return M64ERR_INVALID_STATE;
+}
+
+
+static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
+                                const char* token, uint16_t local_data_port)
+{
+    ENetAddress relay_addr = {0};
+
+    if (enet_address_set_host(&relay_addr, relay_host) != 0)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: enet_address_set_host failed for relay_host='%s'", relay_host);
+        return 0;
+    }
+    relay_addr.port = ctrl_port;
+
+    ENetSocket sock = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+    if (sock == ENET_SOCKET_NULL)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: failed to create UDP socket for relay CTRL");
+        return 0;
+    }
+
+    enet_socket_set_option(sock, ENET_SOCKOPT_NONBLOCK, 1);
+
+    uint16_t token_len = (uint16_t)strlen(token);
+    if (token_len == 0)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: token length is 0");
+        enet_socket_destroy(sock);
+        return 0;
+    }
+
+    size_t pkt_len = 4 + 1 + 1 + 2 + token_len + 2 + 1;
+    uint8_t* pkt = (uint8_t*)malloc(pkt_len);
+    if (!pkt)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: malloc failed for HELLO packet");
+        enet_socket_destroy(sock);
+        return 0;
+    }
+
+    size_t off = 0;
+    pkt[off++] = 'N'; pkt[off++] = 'R'; pkt[off++] = 'L'; pkt[off++] = 'Y';
+    pkt[off++] = (uint8_t)NRLY_VERSION;
+    pkt[off++] = (uint8_t)NRLY_MSG_HELLO;
+
+    Net_Write16(token_len, &pkt[off]); off += 2;
+    memcpy(&pkt[off], token, token_len); off += token_len;
+
+    Net_Write16(local_data_port, &pkt[off]); off += 2;
+    pkt[off++] = 0; // flags
+
+    ENetBuffer b; //= { pkt, pkt_len };
+    b.data = pkt;
+    b.dataLength = pkt_len;
+
+    uint32_t start = SDL_GetTicks();
+    uint32_t last_send = 0;
+
+    DebugMessage(M64MSG_INFO, "Netplay: sending HELLO to %s:%u (token_len=%u data_port=%u)",
+        relay_host, (unsigned)ctrl_port, (unsigned)token_len, (unsigned)local_data_port);
+
+    for (;;)
+    {
+        uint32_t now = SDL_GetTicks();
+
+        // send every 500ms
+        if (now - last_send >= 500)
+        {
+            int sent = enet_socket_send(sock, &relay_addr, &b, 1);
+            if (sent < 0)
+            {
+                DebugMessage(M64MSG_ERROR, "Netplay: enet_socket_send failed (ctrl HELLO) sent=%d", sent);
+                // keep retrying; could be transient
+            }
+            last_send = now;
+        }
+
+        // Receive READY/ERROR
+        uint8_t rx[64];
+        ENetBuffer rb; //= { rx, sizeof(rx) };
+        rb.data = rx;
+        rb.dataLength = sizeof(rx);
+        ENetAddress from = {0};
+
+        int r = enet_socket_receive(sock, &from, &rb, 1);
+        if (r > 0)
+        {
+            if (r >= 6 &&
+                rx[0]=='N' && rx[1]=='R' && rx[2]=='L' && rx[3]=='Y' &&
+                rx[4] == (uint8_t)NRLY_VERSION)
+            {
+                if (rx[5] == (uint8_t)NRLY_MSG_READY)
+                {
+                    DebugMessage(M64MSG_INFO, "Netplay: relay CTRL READY received");
+                    free(pkt);
+                    enet_socket_destroy(sock);
+                    return 1;
+                }
+                if (rx[5] == (uint8_t)NRLY_MSG_ERROR && r >= 7)
+                {
+                    DebugMessage(M64MSG_ERROR, "Netplay: relay CTRL ERROR code=%u", (unsigned)rx[6]);
+                    break;
+                }
+            }
+            else
+            {
+                DebugMessage(M64MSG_WARNING, "Netplay: unexpected CTRL response len=%d", r);
+            }
+        }
+
+        if (now - start > 10000)
+        {
+            DebugMessage(M64MSG_ERROR, "Netplay: relay CTRL handshake timed out");
+            break;
+        }
+
+        SDL_Delay(10);
+    }
+
+    free(pkt);
+    enet_socket_destroy(sock);
+    return 0;
+}
+
+static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
+                           uint16_t data_port, const char* token)
+{
+    ENetAddress relay_addr = {0};
+
+    if (!token || token[0] == '\0')
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: DATA_BIND token is empty");
+        return 0;
+    }
+
+    if (enet_address_set_host(&relay_addr, relay_host) != 0)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: DATA_BIND resolve failed for '%s'", relay_host);
+        return 0;
+    }
+    relay_addr.port = data_port;
+
+    uint16_t token_len = (uint16_t)strlen(token);
+
+    // Packet: 'N''R''L''Y' [ver=1] [type=0x10] [tokenLen u16be] [token bytes]
+    size_t pkt_len = 4 + 1 + 1 + 2 + token_len;
+    uint8_t* pkt = (uint8_t*)malloc(pkt_len);
+    if (!pkt)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: DATA_BIND malloc failed");
+        return 0;
+    }
+
+    size_t off = 0;
+    pkt[off++] = 'N'; pkt[off++] = 'R'; pkt[off++] = 'L'; pkt[off++] = 'Y';
+    pkt[off++] = (uint8_t)NRLY_VERSION;
+    pkt[off++] = (uint8_t)NRLY_MSG_DATA_BIND;
+    Net_Write16(token_len, &pkt[off]); off += 2;
+    memcpy(&pkt[off], token, token_len); off += token_len;
+
+    ENetBuffer b;
+    b.data = pkt;
+    b.dataLength = pkt_len;
+
+    DebugMessage(M64MSG_INFO, "Netplay: sending DATA_BIND to %s:%u (token_len=%u)",
+                 relay_host, (unsigned)data_port, (unsigned)token_len);
+
+    // Send a few times to be resilient (no ACK required)
+    int ok = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+        int sent = enet_socket_send(enet_sock, &relay_addr, &b, 1);
+        if (sent > 0)
+            ok = 1;
+        SDL_Delay(20);
+    }
+
+    free(pkt);
+    return ok;
 }

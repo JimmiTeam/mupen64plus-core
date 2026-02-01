@@ -138,7 +138,6 @@ typedef struct {
 
 input_slot l_input_ring[4][INPUT_BUF];
 
-// #define RELAY_HOST "45.76.57.98"
 #define RELAY_DATA_PORT 27015
 #define RELAY_CTRL_PORT 27016
 
@@ -194,7 +193,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
 
     DebugMessage(M64MSG_INFO, "Netplay: local ENet port=%u. Sending relay HELLO...", (unsigned)local_port);
 
-    // CONTROL handshake on 27016 (raw UDP, NOT ENet)
+    // CONTROL handshake on 27016
     if (!relay_ctrl_handshake(relay_host, RELAY_CTRL_PORT, token, local_port))
     {
         DebugMessage(M64MSG_ERROR, "Netplay: relay control handshake failed.");
@@ -225,6 +224,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
     }
     relay_addr.port = RELAY_DATA_PORT;
 
+    // If you're the host, start the connection
     if (l_is_server)
     {
         ENetEvent event;
@@ -254,6 +254,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
             return M64ERR_SYSTEM_FAIL;
         }
     }
+    // Otherwise, join
     else
     {
         l_peer = enet_host_connect(l_host, &relay_addr, 2, 0);
@@ -304,7 +305,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
         }
     }
 
-    // Now proceed with your existing protocol (PACKET_*), no NRLY over ENet.
+    // Initialize netplay state
     for (int i = 0; i < 4; ++i)
     {
         l_netplay_control[i] = -1;
@@ -354,7 +355,7 @@ m64p_error netplay_stop()
         }
     }
     
-    // Cleanup early buffer
+    // Clean up early buffer
     for (int i = 0; i < 4; ++i)
     {
         struct netplay_event* current = l_early_events[i];
@@ -393,7 +394,7 @@ static void disconnect_and_cleanup(void)
             }
         }
         
-        // Force reset if minimal nice disconnect failed
+        // Force reset if not disconnected within timeout
         enet_peer_reset(l_peer);
     }
     
@@ -412,7 +413,6 @@ disconnect_success:
 
 static uint8_t buffer_size(uint8_t control_id)
 {
-    //This function returns the size of the local input buffer
     uint8_t counter = 0;
     struct netplay_event* current = l_cin_compats[control_id].event_first;
     while (current != NULL)
@@ -423,9 +423,9 @@ static uint8_t buffer_size(uint8_t control_id)
     return counter;
 }
 
+// Check if we already have this input stored
 static int check_valid(uint8_t control_id, uint32_t count)
 {
-    //Check if we already have this event recorded locally, returns 1 if we do
     int idx = count % INPUT_BUF;
     if (l_input_ring[control_id][idx].valid && l_input_ring[control_id][idx].count == count)
         return 1;
@@ -435,9 +435,8 @@ static int check_valid(uint8_t control_id, uint32_t count)
 static void netplay_poll(void)
 {
     ENetEvent event;
-    // Only poll if we don't have pending data waiting to be consumed
-    // if (l_incoming_data != NULL) return;
-
+    
+    // Only poll if there isn't any pending data waiting to be consumed
     while (enet_host_service(l_host, &event, 0) > 0)
     {
         switch (event.type)
@@ -446,7 +445,7 @@ static void netplay_poll(void)
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
                 DebugMessage(M64MSG_ERROR, "Netplay: Disconnected from server.");
-                l_netplay_is_init = 0; // Trigger shutdown handling
+                l_netplay_is_init = 0; // Trigger shutdown handling in main
                 break;
             case ENET_EVENT_TYPE_RECEIVE:
                 // Handle packet
@@ -459,35 +458,11 @@ static void netplay_poll(void)
                     
                     if (len < 1) { enet_packet_destroy(event.packet); continue; }
 
-                    // Debug Log for packet tracing
-                    /* if (!l_is_server && data[0] == PACKET_RECEIVE_KEY_INFO) // Log only Key Info on client
-                         DebugMessage(M64MSG_INFO, "Netplay Cli: Recv Key Info Len %zu", len); */
-
                     switch (data[0])
                     {
                         case PACKET_SYNC_DATA:
-                            // Sync data implementation is currently broken and corrupts VI state.
-                            // Ignoring to prevent desync/slowdown.
+                            // Syncing is fucked up, fix it later
                             break;
-                            /* 
-                            if (l_is_server)
-                            {
-                                if (len < l_check_sync_packet_size) break;
-                                // Recursing here is bad: netplay_check_sync((struct cp0*)&data[1]);
-
-                            }
-                            else
-                            {
-                                if (len < 5) break;
-                                // Bad parsing logic:
-                                // uint8_t status = data[1];
-                                // uint32_t vi_counter = Net_Read32(&data[2]);
-
-                                // l_status = status;
-                                // l_vi_counter = vi_counter;
-                            }
-                            break; 
-                            */
                         case PACKET_REGISTER_PLAYER: // Server side handler
                             if (l_is_server)
                             {
@@ -510,7 +485,7 @@ static void netplay_poll(void)
                             if (l_is_server)
                             {
                                 // DebugMessage(M64MSG_INFO, "Netplay: Client requested registration");
-                                // Send 24 bytes of registration info WRAPPED in packet
+                                // Send 24 bytes of registration info wrapped in packet
                                 uint8_t resp[25] = {0};
                                 resp[0] = PACKET_RECEIVE_REGISTRATION;
                                 
@@ -542,17 +517,16 @@ static void netplay_poll(void)
                                 uint32_t keys = Net_Read32(&data[6]);
                                 uint8_t plugin = data[10];
 
-                                // Validation: Player ID must be valid
                                 if (player > 3) break;
 
-                                // Validation: Check l_cin_compats pointer safety
                                 if (l_cin_compats == NULL) 
                                 {
                                      break;
                                 }
 
-                                // Store locally
+                                // Store all inputs locally
                                 struct controller_input_compat* pComp = &l_cin_compats[player];
+                                // Drop inputs if they go too long without being consumed
                                 if (count + 240u < l_vi_counter)
                                 {
                                     DebugMessage(M64MSG_WARNING, "Netplay: Dropping P%u input for count %u (too old, VI %u)", player+1, count, l_vi_counter);
@@ -579,14 +553,10 @@ static void netplay_poll(void)
                             uint8_t lag = data[3];
                             uint8_t count_events = data[4];
 
-                            // Validation: Player ID
                             if (player > 3) break;
                             
                             l_player_lag[player] = lag;
 
-                            // Ring Buffer Implementation - Handles both early and normal cases
-                            
-                            // Check desync if we are running
                             if (l_cin_compats != NULL && current_status != l_status)
                             {
                                 if (((current_status & 0x1) ^ (l_status & 0x1)) != 0)
@@ -650,7 +620,6 @@ static void netplay_poll(void)
 
 static void netplay_delete_event(struct netplay_event* current, uint8_t control_id)
 {
-    //This function deletes an event from the linked list
     struct netplay_event* find = l_cin_compats[control_id].event_first;
     while (find != NULL)
     {
@@ -676,8 +645,6 @@ static uint32_t netplay_get_input_for_vi(uint8_t control_id, uint32_t vi)
     main_core_state_set(M64CORE_SPEED_LIMITER, 1);
     l_canFF = 0;
     
-    // 1. Wait/Poll loop (with timeout) - Symmetric: Host waits for Client too.
-    // 500ms timeout prevents hangs but allows enough time for latent packets to prevent desync.
     uint32_t start_wait = SDL_GetTicks();
     while (!check_valid(control_id, vi) && (SDL_GetTicks() - start_wait) < 500)
     {
@@ -695,13 +662,13 @@ static uint32_t netplay_get_input_for_vi(uint8_t control_id, uint32_t vi)
     }
     else
     {
-        // 3. Lag Compensation: Use last known input immediately
         keys = l_last_inputs[control_id];
     }
     
     return keys;
 }
 
+// Store local input into ring buffer
 static void netplay_insert_local_event(uint8_t control_id, uint32_t vi, uint32_t keys)
 {
     int idx = vi % INPUT_BUF;
@@ -711,6 +678,7 @@ static void netplay_insert_local_event(uint8_t control_id, uint32_t vi, uint32_t
     l_input_ring[control_id][idx].valid = 1;
 }
 
+// Send local input to peer
 static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32_t keys)
 {
     if (l_is_server)
@@ -808,7 +776,7 @@ int netplay_get_controller(uint8_t player)
 
 file_status_t netplay_read_storage(const char *filename, void *data, size_t size)
 {
-    //This function syncs save games.
+    // Syncs save games, might be useless if we're just loading a state from S3 anyway
     const char *file_extension = strrchr(filename, '.');
     file_extension += 1;
 
@@ -822,15 +790,11 @@ file_status_t netplay_read_storage(const char *filename, void *data, size_t size
 
     if (l_is_server) 
     {
-        // Host: Wait for Client Request first
-        // Clear temp buffer
         if (l_incoming_data) { free(l_incoming_data); l_incoming_data = NULL; }
         
         uint32_t start = SDL_GetTicks();
         int got_request = 0;
         
-        // Host waits up to 30s for the client to ask for THIS specific file.
-        // NOTE: If Client crashes or desyncs, Host waits.
         while ((SDL_GetTicks() - start) < 30000)
         {
             netplay_poll();
@@ -885,7 +849,7 @@ file_status_t netplay_read_storage(const char *filename, void *data, size_t size
         memcpy(&output_data[buffer_pos], &request, 1);
         ++buffer_pos;
 
-        //extension of the file we are requesting
+        // Extension of the file we are requesting
         memcpy(&output_data[buffer_pos], file_extension, strlen(file_extension) + 1);
         buffer_pos += strlen(file_extension) + 1;
 

@@ -215,7 +215,7 @@ void vi_vertical_interrupt_event(void* opaque)
          }
     }
     
-    // Update Frame Index (increments to NEW frame)
+    // Increment frame index and latch input for new frame
     frame_manager_on_vi_interrupt();
     const uint64_t f_new = frame_manager_get_frame_index();
     input_manager_latch_for_frame(f_new);
@@ -231,18 +231,19 @@ void vi_vertical_interrupt_event(void* opaque)
     }
     else if (f_new == 1 && netplay_is_init())
     {
-        char *state_path = "saves/smash_remix_2-0-0__rom-md5-43571020FA5DDB138BBD7F64A8C9C0D4__core-20260131.1.st";
+        char *state_path = ConfigGetParamString(g_CoreConfig, "NetplayStatePath");
         DebugMessage(M64MSG_INFO, "Queueing initial netplay save state load: %s", state_path);
         savestates_set_job(savestates_job_load, savestates_type_m64p, state_path);
     }
 
+    // Read input file if in playback mode
     if (playback_enabled && match_ongoing)
     {
         playback_manager_read_frame(f_new);
     }
+    // Otherwise poll normal input
     else
     {
-        /* Poll controllers for live input */
         input_plugin_poll_all_controllers_for_frame(f_new);
     }
 

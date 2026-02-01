@@ -460,7 +460,7 @@ int main_set_core_defaults(void)
     ConfigSetDefaultString(g_CoreConfig, "NetplayRelayHost", "45.76.57.98", "Netplay relay host address");
     ConfigSetDefaultString(g_CoreConfig, "NetplayToken", "", "Netplay session token");
     ConfigSetDefaultBool(g_CoreConfig, "NetplayHosting", 0, "Netplay role (0: Client, 1: Server)");
-
+    ConfigSetDefaultString(g_CoreConfig, "NetplayStatePath", "", "Path to state file used for Netplay synchronization");
 
     ConfigSetParameter(g_CoreConfig, "Replays", M64TYPE_BOOL, &bFalse);
     ConfigSetParameter(g_CoreConfig, "Playback", M64TYPE_BOOL, &bFalse);

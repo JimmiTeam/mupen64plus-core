@@ -183,10 +183,9 @@ void vi_vertical_interrupt_event(void* opaque)
     /* toggle vi field if in interlaced mode */
     vi->field ^= (vi->regs[VI_STATUS_REG] >> 6) & 0x1;
 
-    /* Jimmi frame logic */
+    // Jimmi frame logic
     uint64_t old_f = frame_manager_get_frame_index();
     
-    // Check game status BEFORE polling new frame to detect transitions
     int current_game_status = game_manager_get_game_status();
     int match_ongoing = current_game_status == REMIX_STATUS_ONGOING;
     static int last_game_status = 0;
@@ -195,8 +194,7 @@ void vi_vertical_interrupt_event(void* opaque)
     int playback_enabled = playback_manager_is_enabled();
     int replays_enabled = replay_manager_is_enabled();
     
-    // RECORDING: If we just transitioned from WAIT -> ONGOING, we must save the PREVIOUS frame (N-1)
-    // which is currently in input_manager.
+    // If replays enabled, start writing inputs upon match start
     if (replays_enabled && !playback_enabled && prev_was_wait && match_ongoing)
     {
          char* replay_path = replay_manager_get_path();
@@ -205,7 +203,7 @@ void vi_vertical_interrupt_event(void* opaque)
              FILE * replay_file = replay_manager_get_file();
              if (replay_file != NULL)
              {
-                // Write input for all 4 controller ports (Data is from N-1)
+                // Write input for all 4 controller ports
                 replay_manager_write_input(replay_file, 0, old_f, input_manager_get_raw(0));
                 replay_manager_write_input(replay_file, 1, old_f, input_manager_get_raw(1));
                 replay_manager_write_input(replay_file, 2, old_f, input_manager_get_raw(2));
@@ -224,8 +222,6 @@ void vi_vertical_interrupt_event(void* opaque)
     {
         char state_path[4096];
         snprintf(state_path, sizeof(state_path), "%s/state.st", playback_manager_get_path());
-        
-        // Use the async job system which is safe to call from here
         DebugMessage(M64MSG_INFO, "Queueing initial replay save state load: %s", state_path);
         savestates_set_job(savestates_job_load, savestates_type_m64p, state_path);
     }
@@ -246,35 +242,6 @@ void vi_vertical_interrupt_event(void* opaque)
     else
     {
         input_plugin_poll_all_controllers_for_frame(f_new);
-    }
-
-
-    if (replays_enabled && !playback_enabled && match_ongoing)
-    {
-        if ((f_new % 60) == 0)
-        {
-            DebugMessage(M64MSG_INFO, "Replay Manager: Current stage id: %d", game_manager_get_stage_id());
-        }
-
-        char* replay_path = replay_manager_get_path();
-        if (replay_path != NULL)
-        {
-            FILE * replay_file = replay_manager_get_file();
-            if (replay_file != NULL)
-            {
-                // Write input for all 4 controller ports
-                int write_failed = 0;
-                write_failed |= !replay_manager_write_input(replay_file, 0, f_new, input_manager_get_raw(0));
-                write_failed |= !replay_manager_write_input(replay_file, 1, f_new, input_manager_get_raw(1));
-                write_failed |= !replay_manager_write_input(replay_file, 2, f_new, input_manager_get_raw(2));
-                write_failed |= !replay_manager_write_input(replay_file, 3, f_new, input_manager_get_raw(3));
-                
-                if (write_failed)
-                {
-                    DebugMessage(M64MSG_WARNING, "Replay Manager: Failed to write input for frame %llu", f_new);
-                }
-            }
-        }
     }
     
     last_game_status = current_game_status;

@@ -40,7 +40,6 @@ int game_manager_get_game_status()
         return 0;
     }
 
-    // Read 32-bit value from RDRAM (shift by 2 for uint32_t array indexing)
     status = rdram->dram[physical_offset >> 2];
 
     return status;
@@ -59,7 +58,6 @@ int game_manager_get_stage_id()
         return 0;
     }
 
-    // Read 8-bit value from RDRAM by casting to uint8_t* for byte-level access
     stage_id = rdram->dram[physical_offset >> 2];
 
     return stage_id;
@@ -78,7 +76,6 @@ int game_manager_get_current_screen()
         return 0;
     }
 
-    // Read 8-bit value from RDRAM by casting to uint8_t* for byte-level access
     current_screen = rdram->dram[physical_offset >> 2];
 
     return current_screen;
@@ -97,7 +94,6 @@ int game_manager_get_last_screen()
         return 0;
     }
 
-    // Read 8-bit value from RDRAM by casting to uint8_t* for byte-level access
     last_screen = rdram->dram[physical_offset >> 2];
 
     return last_screen;

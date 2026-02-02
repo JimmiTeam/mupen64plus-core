@@ -142,10 +142,6 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
     struct controller_input_compat* cin_compat = (struct controller_input_compat*)opaque;
     const uint64_t current_frame_index = frame_manager_get_frame_index();
     
-    // MID-FRAME TRANSITION CHECK:
-    // If we are in playback mode and the match is ongoing, we MUST have replay data for this frame.
-    // If not (e.g. because status changed from WAIT->ONGOING during this frame's execution,
-    // so VI interrupt didn't load replay data yet), we must load it immediately.
     int playback_enabled = playback_manager_is_enabled();
     int match_ongoing = game_manager_get_game_status() == REMIX_STATUS_ONGOING;
 
@@ -153,47 +149,33 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
     {
         if (!input_manager_is_from_playback(cin_compat->control_id))
         {
-            // We missed loading this frame in VI interrupt! Load NOW.
-             playback_manager_read_frame(current_frame_index);
-             DebugMessage(M64MSG_INFO, "Input Plugin: Emergency loaded replay frame %llu due to mid-frame transition", current_frame_index);
+            playback_manager_read_frame(current_frame_index);
+            DebugMessage(M64MSG_INFO, "Input Plugin: Emergency loaded replay frame %llu due to mid-frame transition", current_frame_index);
         }
     }
 
-
-    /* Use the value that was already latched during VI interrupt processing
-     * The latched values were set by input_plugin_poll_all_controllers_for_frame() */
     if (cin_compat->latched_frame_index != current_frame_index)
     {
-        /* Mismatch: the controller value hasn't been latched for this frame yet
-         * This shouldn't happen in normal operation as VI interrupt should come first
-         * But handle it gracefully */
         uint32_t value = 0;
         m64p_error err = M64ERR_SUCCESS;
         
         if (playback_enabled && match_ongoing)
         {
-            /* During playback, read from input_manager (set by VI interrupt from playback file) */
             value = input_manager_get_raw(cin_compat->control_id);
             cin_compat->latched_present = input_manager_has_input(cin_compat->control_id);
             
-            /* Allow user to press Start to pause during playback */
             uint32_t user_input = 0;
             m64p_error user_err = poll_input_once(cin_compat, &user_input);
             if (user_err == M64ERR_SUCCESS)
             {
-                /* Extract Start button from user input */
                 uint32_t start_button = user_input & 0x0010u;
-                /* Merge Start button with replay data */
                 value |= start_button;
             }
         }
         else
         {
-            /* During live input, poll the hardware */
             err = poll_input_once(cin_compat, &value);
             cin_compat->latched_present = (err == M64ERR_SUCCESS);
-            
-            /* Record to input_manager */
             input_manager_record_raw(cin_compat->control_id, current_frame_index, value, 0);
         }
 
@@ -214,7 +196,6 @@ static m64p_error input_plugin_get_input(void* opaque, uint32_t* input_)
 
 void input_plugin_poll_all_controllers_for_frame(uint64_t frame_index)
 {
-    /* Skip polling input plugin if playback is enabled - inputs come from playback file */
     if (playback_manager_is_enabled())
     {
         return;
@@ -237,13 +218,6 @@ void input_plugin_poll_all_controllers_for_frame(uint64_t frame_index)
 
         if (cin_compat->latched_present)
             input_manager_record_raw(cin_compat->control_id, frame_index, cin_compat->latched_input, 0);
-        
-        // if ((frame_index % 60) == 0)
-        // {
-        //     uint32_t p1 = input_manager_get_raw(0);
-        //     DebugMessage(M64MSG_INFO, "Forcing poll f=%llu p1=%08x",
-        //                 (unsigned long long)frame_index, p1);
-        // }
     }
 }
 

@@ -31,6 +31,7 @@
 #include "netplay.h"
 #include <string.h>
 
+// Methods to streamline writing/reading ENet values to emulator
 static inline void Net_Write32(uint32_t value, void *areap)
 {
     uint32_t temp = ENET_HOST_TO_NET_32(value);
@@ -57,46 +58,45 @@ static inline uint16_t Net_Read16(const void *areap)
     return ENET_NET_TO_HOST_16(temp);
 }
 
+// Some of these are from legacy netplay and don't really do anything anymore but I added comments anyway
 
-static int l_canFF;
+static int l_canFF; // Lag compensator, unused right now
 static int l_netplay_controller;
-static int l_netplay_control[4];
+static int l_netplay_control[4]; // The controllers being used. -1 if not present, otherwise their controller id (0-3)
 static struct netplay_event* l_early_events[4]; // Buffer for packets received before registration
-static ENetHost* l_host = NULL;
-static ENetPeer* l_peer = NULL;
-static int l_spectator;
-static int l_netplay_is_init = 0;
-static uint32_t l_vi_counter;
-static uint8_t l_status;
-static uint32_t l_reg_id;
-static struct controller_input_compat *l_cin_compats;
-static uint8_t l_plugin[4];
-static uint8_t l_buffer_target;
+static ENetHost* l_host = NULL; // Player 1 (creates the room)
+static ENetPeer* l_peer = NULL; // Player 2 (joins the room)
+static int l_spectator; // Unused for now
+static int l_netplay_is_init = 0; // If set back to zero, main loop will shut down netplay
+static uint32_t l_vi_counter; // Counts VI interrupts as baseline frames
+static uint8_t l_status; // Connected, desynced, disconnectd
+static uint32_t l_reg_id; // Each player gets a registration ID in their instance
+static struct controller_input_compat *l_cin_compats; // Controller structures that the rest of the emulator reads
+static uint8_t l_plugin[4]; // Controller paks, hard coded to none for everybody right now
+static uint8_t l_buffer_target; // Delays inputs for syncing
 static uint8_t l_player_lag[4];
-static uint32_t l_last_inputs[4];
+static uint32_t l_last_inputs[4]; // Keeps track of players' last inputs. If a new input is invalid then it uses this.
 
-static uint32_t l_last_send_vi[4] = { 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu };
-static uint32_t l_cached_vi[4] = { 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu };
-static uint32_t l_cached_keys[4] = { 0u, 0u, 0u, 0u };
+static uint32_t l_last_send_vi[4] = { 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu }; // The last VI on which a player sent input
+static uint32_t l_cached_vi[4] = { 0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu }; // Cache for prior VI
+static uint32_t l_cached_inputs[4] = { 0u, 0u, 0u, 0u };
 
-static uint32_t l_sync_vi = 0xffffffffu;
+static uint32_t l_sync_vi = 0xffffffffu; // The last VI on which a sync happened
 static uint32_t l_sync_regs[CP0_REGS_COUNT];
 
-//Packet data buffer for reassembly if needed
 static uint8_t* l_incoming_data = NULL;
 static size_t l_incoming_size = 0;
-static int l_is_server = 0;
-static int l_client_ready = 0;
+static int l_is_host = 0; // Whether the user is the one who created the room (Player 1)
+static int l_client_ready = 0; // If above is true, whether the other player is ready
 
 static const int32_t l_check_sync_packet_size = (CP0_REGS_COUNT * 4) + 5;
 
-// //Packet formats
+// Packet formats
 #define PACKET_SEND_KEY_INFO 0
 #define PACKET_RECEIVE_KEY_INFO 1
 #define PACKET_REQUEST_KEY_INFO 2
 #define PACKET_RECEIVE_KEY_INFO_GRATUITOUS 3
 #define PACKET_SYNC_DATA 4
-
 #define PACKET_SEND_SAVE 10
 #define PACKET_RECEIVE_SAVE 11
 #define PACKET_SEND_SETTINGS 12
@@ -106,18 +106,20 @@ static const int32_t l_check_sync_packet_size = (CP0_REGS_COUNT * 4) + 5;
 #define PACKET_RECEIVE_REGISTRATION 16
 #define PACKET_CLIENT_READY 17
 
-// // Relay Protocol
-#define NRLY_MAGIC_BE 0x4E524C59u
+// Relay Protocol
+#define NRLY_MAGIC_BE 0x4E524C59u // Packet identifier 'N' 'R' 'L' 'Y' (Netplay ReLaY teehee)
 #define NRLY_VERSION  1u
 
+// Types of messages for ENet
 typedef enum nrly_msg_type_t
 {
     NRLY_MSG_HELLO = 0x01,
     NRLY_MSG_READY = 0x02,
     NRLY_MSG_ERROR = 0x03,
-    NRLY_MSG_DATA_BIND = 0x10,
+    NRLY_MSG_DATA_BIND = 0x04,
 } nrly_msg_type_t;
 
+// Failure types that ENet can give
 typedef enum nrly_error_code_t
 {
     NRLY_ERR_INVALID_TOKEN      = 0x01,
@@ -128,39 +130,43 @@ typedef enum nrly_error_code_t
     NRLY_ERR_RATE_LIMITED       = 0x06,
 } nrly_error_code_t;
 
+// Input buffer, should experiment with the value
 #define INPUT_BUF 256
 typedef struct {
   uint32_t count;
-  uint32_t keys;
+  uint32_t inputs;
   uint8_t plugin;
   uint8_t valid;
 } input_slot;
 
+// Circular buffer for inputs, should be more efficient for FIFO
 input_slot l_input_ring[4][INPUT_BUF];
 
-#define RELAY_DATA_PORT 27015
-#define RELAY_CTRL_PORT 27016
+#define RELAY_DATA_PORT 27015 // Server port for relaying packets
+#define RELAY_CTRL_PORT 27016 // Server port for establishing connection
 
 #define NETPLAY_DEFAULT_INPUT_DELAY 9
 
 // Disconnect helper
 static void disconnect_and_cleanup(void);
 
-
+// Make contact with relay server and submit data
 static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
                                 const char* token, uint16_t local_data_port);
 static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
                                 uint16_t data_port, const char* token);
 
-m64p_error netplay_start(const char* relay_host, const char* token, int is_server)
+
+m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
 {
+    // Host address and token must be given in command parameter. Emulator should never get to this point but who knows
     if (!relay_host || relay_host[0] == '\0' || !token || token[0] == '\0')
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: missing relay_host or token.");
+        DebugMessage(M64MSG_ERROR, "Netplay: Missing relay host or token!");
         return M64ERR_INPUT_INVALID;
     }
 
-    l_is_server = (is_server == 1);
+    l_is_host = (is_host == 1);
 
     if (enet_initialize() != 0)
     {
@@ -168,7 +174,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
         return M64ERR_SYSTEM_FAIL;
     }
 
-    // Bind ENet to a local ephemeral port so we know what to report in HELLO
+    // Bind ENet to a local port so we know what to report in HELLO
     ENetAddress local = { 0 };
     local.host = ENET_HOST_ANY;
     local.port = 0;
@@ -188,15 +194,15 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
         if (enet_socket_get_address(l_host->socket, &bound) == 0)
             local_port = bound.port;
     }
-    DebugMessage(M64MSG_INFO, "Netplay: relay_host='%s' token_len=%u is_server=%d",
-    relay_host, (unsigned)strlen(token), l_is_server);
+    DebugMessage(M64MSG_INFO, "Netplay: relay_host='%s' token_len=%u is_host=%d",
+    relay_host, (unsigned)strlen(token), l_is_host);
 
-    DebugMessage(M64MSG_INFO, "Netplay: local ENet port=%u. Sending relay HELLO...", (unsigned)local_port);
+    DebugMessage(M64MSG_INFO, "Netplay: Local ENet port=%u. Sending relay HELLO...", (unsigned)local_port);
 
     // CONTROL handshake on 27016
     if (!relay_ctrl_handshake(relay_host, RELAY_CTRL_PORT, token, local_port))
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: relay control handshake failed.");
+        DebugMessage(M64MSG_ERROR, "Netplay: Relay CONTROL handshake failed.");
         enet_host_destroy(l_host);
         enet_deinitialize();
         l_host = NULL;
@@ -205,14 +211,14 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
 
     if (!relay_data_bind(l_host->socket, relay_host, RELAY_DATA_PORT, token))
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: relay DATA_BIND failed.");
+        DebugMessage(M64MSG_ERROR, "Netplay: Relay DATA_BIND failed.");
         enet_host_destroy(l_host);
         enet_deinitialize();
         l_host = NULL;
         return M64ERR_SYSTEM_FAIL;
     }
 
-    // ENet connect to relay data port 27015
+    // ENet connection to relay data port 27015
     ENetAddress relay_addr = { 0 };
     if (enet_address_set_host(&relay_addr, relay_host) != 0)
     {
@@ -224,8 +230,8 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
     }
     relay_addr.port = RELAY_DATA_PORT;
 
-    // If you're the host, start the connection
-    if (l_is_server)
+    // If you're the host, wait for client to connect and set them to l_peer
+    if (l_is_host)
     {
         ENetEvent event;
         int ok = 0;
@@ -254,7 +260,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
             return M64ERR_SYSTEM_FAIL;
         }
     }
-    // Otherwise, join
+    // Otherwise, l_peer is the host and you connect to them
     else
     {
         l_peer = enet_host_connect(l_host, &relay_addr, 2, 0);
@@ -284,7 +290,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
             }
             if (r > 0 && event.type == ENET_EVENT_TYPE_DISCONNECT)
             {
-                rejected = 1;
+                rejected = 1; // Mostly here for debugging, tells whether client timed out or was actively rejected
                 break;
             }
         }
@@ -296,11 +302,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
             else
                 DebugMessage(M64MSG_ERROR, "Netplay: ENet connect timeout.");
                 
-            enet_peer_reset(l_peer);
-            enet_host_destroy(l_host);
-            enet_deinitialize();
-            l_host = NULL;
-            l_peer = NULL;
+            disconnect_and_cleanup();
             return M64ERR_SYSTEM_FAIL;
         }
     }
@@ -328,7 +330,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_serve
     if (l_incoming_data) { free(l_incoming_data); l_incoming_data = NULL; }
     l_incoming_size = 0;
 
-    DebugMessage(M64MSG_INFO, "Netplay: connected. is_server=%d", l_is_server);
+    DebugMessage(M64MSG_INFO, "Netplay: connected. is_host=%d", l_is_host);
     return M64ERR_SUCCESS;
 }
 
@@ -368,6 +370,7 @@ m64p_error netplay_stop()
         }
         l_early_events[i] = NULL;
     }
+    disconnect_and_cleanup();
 
     return M64ERR_SUCCESS;
 }
@@ -404,10 +407,11 @@ disconnect_success:
     
     l_host = NULL;
     l_peer = NULL;
-    l_is_server = 0;
+    l_is_host = 0;
     l_netplay_is_init = 0;
     
-    if (l_incoming_data) free(l_incoming_data);
+    if (l_incoming_data)
+        free(l_incoming_data);
     l_incoming_data = NULL;
 }
 
@@ -445,19 +449,20 @@ static void netplay_poll(void)
                 break;
             case ENET_EVENT_TYPE_DISCONNECT:
                 DebugMessage(M64MSG_ERROR, "Netplay: Disconnected from server.");
-                l_netplay_is_init = 0; // Trigger shutdown handling in main
+                disconnect_and_cleanup();
                 break;
             case ENET_EVENT_TYPE_RECEIVE:
                 // Handle packet
                 {
-                    DebugMessage(M64MSG_INFO, "Netplay: channel ID: %u, packet len: %u",
-                                 (unsigned)event.channelID,
-                                 (unsigned)event.packet->dataLength);
+                    // DebugMessage(M64MSG_INFO, "Netplay: channel ID: %u, packet len: %u",
+                    //              (unsigned)event.channelID,
+                    //              (unsigned)event.packet->dataLength);
                     uint8_t* data = event.packet->data;
                     size_t len = event.packet->dataLength;
                     
                     if (len < 1) { enet_packet_destroy(event.packet); continue; }
 
+                    // Match the packet type
                     switch (data[0])
                     {
                         case PACKET_SYNC_DATA:
@@ -485,7 +490,7 @@ static void netplay_poll(void)
                             }
                             break;
                         case PACKET_REGISTER_PLAYER: // Server side handler
-                            if (l_is_server)
+                            if (l_is_host)
                             {
                                 if (len < 8) break;
                                 // Client registering. ACK with [player_id, buffer_target]
@@ -496,14 +501,14 @@ static void netplay_poll(void)
                             }
                             break;
                         case PACKET_CLIENT_READY:
-                            if (l_is_server)
+                            if (l_is_host)
                             {
                                 // DebugMessage(M64MSG_INFO, "Netplay: Client Ready");
                                 l_client_ready = 1;
                             }
                             break;
-                        case PACKET_GET_REGISTRATION: // Server side handler
-                            if (l_is_server)
+                        case PACKET_GET_REGISTRATION: // Host side handler
+                            if (l_is_host)
                             {
                                 // DebugMessage(M64MSG_INFO, "Netplay: Client requested registration");
                                 // Send 24 bytes of registration info wrapped in packet
@@ -528,22 +533,22 @@ static void netplay_poll(void)
                                 enet_peer_send(event.peer, 0, p);
                             }
                             break;
-                        case PACKET_SEND_KEY_INFO: // Server side handler
-                            if (l_is_server)
+                        case PACKET_SEND_KEY_INFO: // Host side handler
+                            if (l_is_host)
                             {
-                                if (len < 11) break;
+                                if (len < 11)
+                                    break;
                                 // Client sent input.
                                 uint8_t player = data[1];
                                 uint32_t count = Net_Read32(&data[2]);
-                                uint32_t keys = Net_Read32(&data[6]);
+                                uint32_t inputs = Net_Read32(&data[6]);
                                 uint8_t plugin = data[10];
 
-                                if (player > 3) break;
+                                if (player > 3)
+                                    break;
 
                                 if (l_cin_compats == NULL) 
-                                {
-                                     break;
-                                }
+                                    break;
 
                                 // Store all inputs locally
                                 struct controller_input_compat* pComp = &l_cin_compats[player];
@@ -557,14 +562,14 @@ static void netplay_poll(void)
                                 {
                                     int idx = count % INPUT_BUF;
                                     l_input_ring[player][idx].count = count;
-                                    l_input_ring[player][idx].keys = keys;
+                                    l_input_ring[player][idx].inputs = inputs;
                                     l_input_ring[player][idx].plugin = plugin;
                                     l_input_ring[player][idx].valid = 1;
                                 }
                             }
                             break;
                             
-                        case PACKET_RECEIVE_KEY_INFO:
+                        case PACKET_RECEIVE_KEY_INFO: // Client side handler
                         {
                             if (len < 6) break;
                             uint8_t player = data[1];
@@ -577,15 +582,25 @@ static void netplay_poll(void)
                             if (player > 3) break;
                             
                             l_player_lag[player] = lag;
-
+                            
                             if (l_cin_compats != NULL && current_status != l_status)
                             {
-                                if (((current_status & 0x1) ^ (l_status & 0x1)) != 0)
+                                int prev_sync = (l_status & 1);
+                                int curr_sync = (current_status & 1);
+                                if (prev_sync != curr_sync)
+                                {
                                     DebugMessage(M64MSG_ERROR, "Netplay: players have de-synced at VI %u", l_vi_counter);
+                                }
+                                
                                 for (int dis = 1; dis < 5; ++dis)
                                 {
-                                    if (((current_status & (0x1 << dis)) ^ (l_status & (0x1 << dis))) != 0)
+                                    int prev_sync = (l_status & (1 << dis));
+                                    int curr_sync = (l_status & (1 << dis));
+                                    if (prev_sync != curr_sync)
+                                    {
                                         DebugMessage(M64MSG_ERROR, "Netplay: player %u has disconnected", dis);
+                                        disconnect_and_cleanup();
+                                    }
                                 }
                                 l_status = current_status;
                             }
@@ -597,14 +612,14 @@ static void netplay_poll(void)
                                 
                                 uint32_t count = Net_Read32(&data[curr]);
                                 curr += 4;
-                                uint32_t keys = Net_Read32(&data[curr]);
+                                uint32_t inputs = Net_Read32(&data[curr]);
                                 curr += 4;
                                 uint8_t plugin = data[curr];
                                 curr += 1;
                                 
                                 int idx = count % INPUT_BUF;
                                 l_input_ring[player][idx].count = count;
-                                l_input_ring[player][idx].keys = keys;
+                                l_input_ring[player][idx].inputs = inputs;
                                 l_input_ring[player][idx].plugin = plugin;
                                 l_input_ring[player][idx].valid = 1;
                             }
@@ -616,7 +631,6 @@ static void netplay_poll(void)
                                 l_incoming_data = malloc(len);
                                 memcpy(l_incoming_data, data, len);
                                 l_incoming_size = len;
-                                // Stop processing events so we don't overwrite this packet
                                 enet_packet_destroy(event.packet);
                                 return;
                             }
@@ -638,7 +652,7 @@ static void netplay_poll(void)
     }
 }
 
-
+// Unused rn
 static void netplay_delete_event(struct netplay_event* current, uint8_t control_id)
 {
     struct netplay_event* find = l_cin_compats[control_id].event_first;
@@ -656,9 +670,10 @@ static void netplay_delete_event(struct netplay_event* current, uint8_t control_
     free(current);
 }
 
+
 static uint32_t netplay_get_input_for_vi(uint8_t control_id, uint32_t vi)
 {
-    uint32_t keys = 0;
+    uint32_t inputs = 0;
     
     // Process incoming packets
     netplay_poll();
@@ -670,23 +685,24 @@ static uint32_t netplay_get_input_for_vi(uint8_t control_id, uint32_t vi)
     while (!check_valid(control_id, vi) && (SDL_GetTicks() - start_wait) < 500)
     {
         netplay_poll();
-        if (check_valid(control_id, vi)) break;
+        if (check_valid(control_id, vi))
+            break;
         SDL_Delay(1);
     }
 
     if (check_valid(control_id, vi))
     {
         int idx = vi % INPUT_BUF;
-        keys = l_input_ring[control_id][idx].keys;
+        inputs = l_input_ring[control_id][idx].inputs;
         Controls[control_id].Plugin = l_input_ring[control_id][idx].plugin;
-        l_last_inputs[control_id] = keys;
+        l_last_inputs[control_id] = inputs;
     }
     else
     {
-        keys = l_last_inputs[control_id];
+        inputs = l_last_inputs[control_id];
     }
     
-    return keys;
+    return inputs;
 }
 
 // Store local input into ring buffer
@@ -694,7 +710,7 @@ static void netplay_insert_local_event(uint8_t control_id, uint32_t vi, uint32_t
 {
     int idx = vi % INPUT_BUF;
     l_input_ring[control_id][idx].count = vi;
-    l_input_ring[control_id][idx].keys = keys;
+    l_input_ring[control_id][idx].inputs = keys;
     l_input_ring[control_id][idx].plugin = l_plugin[control_id];
     l_input_ring[control_id][idx].valid = 1;
 }
@@ -702,7 +718,7 @@ static void netplay_insert_local_event(uint8_t control_id, uint32_t vi, uint32_t
 // Send local input to peer
 static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32_t keys)
 {
-    if (l_is_server)
+    if (l_is_host)
     {
         uint8_t pkt[14];
         pkt[0] = PACKET_RECEIVE_KEY_INFO;
@@ -809,7 +825,7 @@ file_status_t netplay_read_storage(const char *filename, void *data, size_t size
     file_status_t ret;
     uint8_t request;
 
-    if (l_is_server) 
+    if (l_is_host) 
     {
         if (l_incoming_data) { free(l_incoming_data); l_incoming_data = NULL; }
         
@@ -941,8 +957,8 @@ void netplay_sync_settings(uint32_t *count_per_op, uint32_t *count_per_op_denom_
     char output_data[SETTINGS_SIZE + 1];
     uint8_t request;
     
-    // Server sends settings, Client receives
-    if (l_is_server) 
+    // Host sends settings, client receives
+    if (l_is_host) 
     {
         request = PACKET_SEND_SETTINGS;
         memcpy(&output_data[0], &request, 1);
@@ -995,6 +1011,7 @@ void netplay_check_sync(struct cp0* cp0)
     if (!netplay_is_init())
         return;
 
+    // Check sync every 600 frames
     if (l_vi_counter % 600 == 0)
     {
         const uint32_t* cp0_regs = r4300_cp0_regs(cp0);
@@ -1050,47 +1067,51 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
     if (!netplay_is_init())
         return;
     
-    // Set global pointer EARLY so we can receive inputs while waiting for registration.
     l_cin_compats = cin_compats;
     
     // Flush any buffered inputs
     netplay_flush_early_buffer();
 
-    if (l_is_server)
+    if (l_is_host)
     {
+        // Force all paks to none for now
+        // P1 (Host)
         Controls[0].Present = 1;
         Controls[0].Plugin = PLUGIN_NONE;
         Controls[0].RawData = 0;
         l_plugin[0] = PLUGIN_NONE;
         netplay_set_controller(0);
 
-        //P2 (Client)
+        // P2 (Client)
         Controls[1].Present = 1;
         Controls[1].Plugin = PLUGIN_NONE;
         Controls[1].RawData = 0;
         l_plugin[1] = PLUGIN_NONE;
-
-        // P3/P4
-        Controls[2].Present = 0;
-        Controls[2].Plugin = PLUGIN_NONE;
-        Controls[3].Present = 0;
-        Controls[3].Plugin = PLUGIN_NONE;
         
         // Host waits for client to be ready
         uint32_t start = SDL_GetTicks();
         while ((SDL_GetTicks() - start) < 30000) 
         {
-             // Safety: Clear unused incoming data to prevent netplay_poll deadlock
-             if (l_incoming_data) { free(l_incoming_data); l_incoming_data = NULL; }
+            // Clear unused incoming data to prevent deadlock in netplay_poll
+            if (l_incoming_data)
+            {
+            free(l_incoming_data); l_incoming_data = NULL;
+            }
 
-             netplay_poll();
-             if (l_client_ready) break;
-             SDL_Delay(10);
+            netplay_poll();
+            if (l_client_ready) break;
+            SDL_Delay(10);
         }
         if (!l_client_ready) DebugMessage(M64MSG_ERROR, "Netplay: Timed out waiting for client ready.");
         
         return;
     }
+
+    // P3/P4 (Shouldn't be present)
+    Controls[2].Present = 0;
+    Controls[2].Plugin = PLUGIN_NONE;
+    Controls[3].Present = 0;
+    Controls[3].Plugin = PLUGIN_NONE;
 
     uint32_t reg_id;
     char output_data = PACKET_GET_REGISTRATION;
@@ -1158,14 +1179,13 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
         }
     }
     
-    // Explicitly zero out P3 and P4 to ensure no memory pak ghosting if server said they are empty
-    for (int i=0; i<4; ++i)
-    {
-        if (Controls[i].Present == 0)
-        {
-             Controls[i].Plugin = PLUGIN_NONE;
-        }
-    }
+    // for (int i=0; i<4; ++i)
+    // {
+    //     if (Controls[i].Present == 0)
+    //     {
+    //          Controls[i].Plugin = PLUGIN_NONE;
+    //     }
+    // }
     
     // Send Ready Signal
     output_data = PACKET_CLIENT_READY;
@@ -1173,7 +1193,7 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
     enet_peer_send(l_peer, 0, packet);
     enet_host_flush(l_host);
     
-    // DebugMessage(M64MSG_INFO, "Netplay: Client Registration Complete. Sending Ready.");
+    // DebugMessage(M64MSG_INFO, "Netplay: Client registration complete. Sending Ready.");
 }
 
 static void netplay_send_raw_input(struct pif* pif)
@@ -1185,7 +1205,7 @@ static void netplay_send_raw_input(struct pif* pif)
         {
             if (pif->channels[i].tx && pif->channels[i].tx_buf[0] == JCMD_CONTROLLER_READ)
             {
-                if (l_last_send_vi[i] == vi)
+                if (l_last_send_vi[i] == vi) // Already sent for this VI, continue
                     continue;
                 l_last_send_vi[i] = vi;
 
@@ -1217,15 +1237,15 @@ static void netplay_get_raw_input(struct pif* pif)
                     {
                         if (vi < (uint32_t)l_buffer_target)
                         {
-                            l_cached_keys[i] = 0;
+                            l_cached_inputs[i] = 0;
                         }
                         else
                         {
-                            l_cached_keys[i] = netplay_get_input_for_vi((uint8_t)i, vi);
+                            l_cached_inputs[i] = netplay_get_input_for_vi((uint8_t)i, vi);
                         }
                         l_cached_vi[i] = vi;
                     }
-                    *(uint32_t*)pif->channels[i].rx_buf = l_cached_keys[i];
+                    *(uint32_t*)pif->channels[i].rx_buf = l_cached_inputs[i];
                 }
                 else if ((pif->channels[i].tx_buf[0] == JCMD_STATUS || pif->channels[i].tx_buf[0] == JCMD_RESET) && Controls[i].RawData)
                 {
@@ -1303,7 +1323,7 @@ m64p_error netplay_receive_config(char* data, int size)
         return M64ERR_INVALID_STATE;
 }
 
-
+// Host makes contact with rendezvous server
 static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
                                 const char* token, uint16_t local_data_port)
 {
@@ -1343,14 +1363,17 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     }
 
     size_t off = 0;
+      // Packet: 'N''R''L''Y' [ver=1] [type=0x01] [tokenLen u16be] [token bytes] [local data port] [terminator]
     pkt[off++] = 'N'; pkt[off++] = 'R'; pkt[off++] = 'L'; pkt[off++] = 'Y';
     pkt[off++] = (uint8_t)NRLY_VERSION;
     pkt[off++] = (uint8_t)NRLY_MSG_HELLO;
 
-    Net_Write16(token_len, &pkt[off]); off += 2;
+    Net_Write16(token_len, &pkt[off]);
+    off += 2;
     memcpy(&pkt[off], token, token_len); off += token_len;
 
-    Net_Write16(local_data_port, &pkt[off]); off += 2;
+    Net_Write16(local_data_port, &pkt[off]);
+    off += 2;
     pkt[off++] = 0;
 
     ENetBuffer b;
@@ -1367,21 +1390,20 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     {
         uint32_t now = SDL_GetTicks();
 
-        // send every 500ms
+        // Send every 500 ticks
         if (now - last_send >= 500)
         {
             int sent = enet_socket_send(sock, &relay_addr, &b, 1);
             if (sent < 0)
             {
                 DebugMessage(M64MSG_ERROR, "Netplay: enet_socket_send failed (ctrl HELLO) sent=%d", sent);
-                // keep retrying; could be transient
             }
             last_send = now;
         }
 
-        // Receive READY/ERROR
+        // Receive READY or ERROR
         uint8_t rx[64];
-        ENetBuffer rb; //= { rx, sizeof(rx) };
+        ENetBuffer rb;
         rb.data = rx;
         rb.dataLength = sizeof(rx);
         ENetAddress from = {0};
@@ -1389,9 +1411,9 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
         int r = enet_socket_receive(sock, &from, &rb, 1);
         if (r > 0)
         {
-            if (r >= 6 &&
-                rx[0]=='N' && rx[1]=='R' && rx[2]=='L' && rx[3]=='Y' &&
-                rx[4] == (uint8_t)NRLY_VERSION)
+            // Ensures that the packet we got is from the server
+            if (r >= 6 && rx[4] == (uint8_t)NRLY_VERSION &&
+                rx[0]=='N' && rx[1]=='R' && rx[2]=='L' && rx[3]=='Y')
             {
                 if (rx[5] == (uint8_t)NRLY_MSG_READY)
                 {
@@ -1446,7 +1468,7 @@ static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
 
     uint16_t token_len = (uint16_t)strlen(token);
 
-    // Packet: 'N''R''L''Y' [ver=1] [type=0x10] [tokenLen u16be] [token bytes]
+    // Packet: 'N''R''L''Y' [ver=1] [type=0x04] [tokenLen u16be] [token bytes]
     size_t pkt_len = 4 + 1 + 1 + 2 + token_len;
     uint8_t* pkt = (uint8_t*)malloc(pkt_len);
     if (!pkt)
@@ -1459,8 +1481,10 @@ static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
     pkt[off++] = 'N'; pkt[off++] = 'R'; pkt[off++] = 'L'; pkt[off++] = 'Y';
     pkt[off++] = (uint8_t)NRLY_VERSION;
     pkt[off++] = (uint8_t)NRLY_MSG_DATA_BIND;
-    Net_Write16(token_len, &pkt[off]); off += 2;
-    memcpy(&pkt[off], token, token_len); off += token_len;
+    Net_Write16(token_len, &pkt[off]);
+    off += 2;
+    memcpy(&pkt[off], token, token_len);
+    off += token_len;
 
     ENetBuffer b;
     b.data = pkt;
@@ -1469,7 +1493,7 @@ static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
     DebugMessage(M64MSG_INFO, "Netplay: sending DATA_BIND to %s:%u (token_len=%u)",
                  relay_host, (unsigned)data_port, (unsigned)token_len);
 
-    // Send a few times to be resilient (no ACK required)
+    // Send a few times
     int ok = 0;
     for (int i = 0; i < 3; ++i)
     {

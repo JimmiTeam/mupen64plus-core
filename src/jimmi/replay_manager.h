@@ -12,7 +12,6 @@ int replay_manager_set_path(char* path);
 FILE* replay_manager_get_file(void);
 void replay_manager_open(char* folder);
 int replay_manager_write_input(FILE * file, int controller_index, uint64_t frame_index, uint32_t raw_input);
-void replay_manager_close(void);
 
 // Write all 4 controller records for a frame in order
 int replay_manager_write_frame(FILE * file, uint64_t frame_index, const uint32_t raw_inputs[4]);

@@ -15,7 +15,6 @@ static FILE * replay_file = NULL;
 
 void replay_manager_init(void)
 {
-    
     replays_enabled = ConfigGetParamBool(g_CoreConfig, "Replays");
     
     if (replay_path != NULL)
@@ -48,12 +47,6 @@ void replay_manager_open(char* folder)
         DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to open replay file at path %s", input_path);
     }
     replay_file = file;
-}
-
-
-void replay_manager_close(void)
-{
-    // Nothing to do here for now
 }
 
 
@@ -93,7 +86,6 @@ int replay_manager_write_input(FILE * file, int controller_index, uint64_t frame
         return 0;
     }
     
-    // Flush periodically to prevent data loss (every 60 frames)
     static uint64_t last_flush_frame = 0;
     if (frame_index - last_flush_frame >= 60)
     {
@@ -146,7 +138,6 @@ char* replay_manager_generate_path(char* folder)
         DebugMessage(M64MSG_ERROR, "Replay Manager: Failed to create replay directory at path %s", replay_folder);
         return NULL;
     }
-    // replay_manager_set_path(folder);
     return strdup(replay_folder);
 }
 

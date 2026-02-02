@@ -1095,10 +1095,6 @@ void new_vi(void)
 {
     int recording_enabled = replay_manager_is_enabled();
     int current_game_state = game_manager_get_game_status();
-    
-    // DebugMessage(M64MSG_INFO, "Last game state: %d, Current game state: %d, Recording enabled: %d",
-    //     last_game_state, current_game_state, recording_enabled);
-
 
     if (last_game_state == REMIX_STATUS_WAIT &&
         current_game_state == REMIX_STATUS_ONGOING &&
@@ -1666,22 +1662,26 @@ m64p_error main_run(void)
 {
 
     DebugMessage(M64MSG_INFO, "ROM MD5 hash: %s", ROM_SETTINGS.MD5);
-    // Auto-start Netplay if configured
+    // Auto-start Netplay if enabled
     if (ConfigGetParamBool(g_CoreConfig, "Netplay"))
     {
         const char *token = ConfigGetParamString(g_CoreConfig, "NetplayToken");
         const char *relay = ConfigGetParamString(g_CoreConfig, "NetplayRelayHost");
-        int is_server = ConfigGetParamBool(g_CoreConfig, "NetplayHosting"); // 0=client, 1=hosting
+        int is_host = ConfigGetParamBool(g_CoreConfig, "NetplayHosting"); // 0=client, 1=hosting
 
-        // Fallback: If NetplayToken/NetplayRelayHost missing, try legacy mapping
-        if (!token || token[0] == '\0') token = ConfigGetParamString(g_CoreConfig, "NetplayHost");
-        if ((!relay || relay[0] == '\0')) relay = "45.76.57.98"; 
-
-        if (token && token[0])
+        if (!token || token[0] == '\0')
         {
-            DebugMessage(M64MSG_INFO, "Auto-starting Netplay. Relay=%s IsServer=%d", relay, is_server);
-            netplay_start(relay, token, is_server);
+            DebugMessage(M64MSG_ERROR, "Netplay: Token missing from console parameters!");
+            return M64ERR_INPUT_INVALID;
         }
+        if ((!relay || relay[0] == '\0'))
+        {
+            DebugMessage(M64MSG_ERROR, "Netplay: Relay host missing from console parameters!");
+            return M64ERR_INPUT_INVALID;
+        }
+
+        DebugMessage(M64MSG_INFO, "Netplay: Auto-starting Netplay. Relay=%s IsHost=%d", relay, is_host);
+        netplay_start(relay, token, is_host);
     }
 
     size_t i, k;

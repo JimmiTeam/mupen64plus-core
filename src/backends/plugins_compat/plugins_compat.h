@@ -55,6 +55,7 @@ struct controller_input_compat
     uint32_t netplay_count;
     struct netplay_event* event_first;
 
+    // Jimmi replay stuff
     uint64_t latched_frame_index;
     uint32_t latched_input;
     JimmiControllerState latched_decoded;

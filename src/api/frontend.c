@@ -366,16 +366,8 @@ EXPORT m64p_error CALL CoreDoCommand(m64p_command Command, int ParamInt, void *P
                 return M64ERR_INPUT_INVALID;
             g_media_loader = *(m64p_media_loader*)ParamPtr;
             return M64ERR_SUCCESS;
-        case M64CMD_NETPLAY_INIT:
-            if (ParamInt < 0 || ParamPtr == NULL)
-                return M64ERR_INPUT_INVALID;
-            
-            const char *relay = ConfigGetParamString(g_CoreConfig, "NetplayRelayHost");
-            if (relay == NULL || relay[0] == '\0') relay = "45.76.57.98";
-
-            // ParamInt often contains a Port number (legacy). Only treat '1' as Server flag.
-            int is_server = (ParamInt == 1);
-            return netplay_start(relay, (const char *)ParamPtr, is_server);
+        case M64CMD_NETPLAY_INIT: // Shouldn't be able to get here with Jimmi
+            return M64ERR_INVALID_STATE;
         case M64CMD_NETPLAY_CONTROL_PLAYER:
             if (ParamInt < 1 || ParamInt > 4 || ParamPtr == NULL)
                 return M64ERR_INPUT_INVALID;

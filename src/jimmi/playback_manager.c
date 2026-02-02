@@ -26,7 +26,7 @@ void playback_manager_init(void)
     {
         if (ConfigGetParameter(g_CoreConfig, "PlaybackPath", M64TYPE_STRING, playback_path_buffer, sizeof(playback_path_buffer)) == M64ERR_SUCCESS)
         {
-            DebugMessage(M64MSG_INFO, "Playing from playback path: %s", playback_path_buffer);
+            DebugMessage(M64MSG_INFO, "Playback Manager: Playing from playback path: %s", playback_path_buffer);
             if (playback_path_buffer[0] != '\0')
             {
                 playback_path = strdup(playback_path_buffer);

@@ -1162,6 +1162,88 @@ void new_vi(void)
 
 }
 
+static uint32_t main_render_player_tags(uint32_t port)
+{
+    uint32_t file26Base = mem_read32(g_dev.r4300.regs[8] + 0xA04C); // reg 8 is t0 in R4300
+    uint32_t tagImageAddr = file26Base + 0x1158;
+    uint32_t stringTable = file26Base + 0x14;
+
+    g_dev.r4300.regs[18] = port;
+    g_dev.r4300.regs[2] = tagImageAddr;
+    g_dev.r4300.regs[29] = 0x803FF00;
+    const uint32_t RETURN_PC = 0xDEADBEEF;
+    g_dev.r4300.regs[31] = RETURN_PC;
+
+    install_player_tag("hello", 0, 1, 0);
+    
+    uint32_t virtual_addr = 0x80111D1C;
+    uint32_t physical_offset = virtual_addr & 0x3FFFFF;
+
+    if (physical_offset >= rdram->dram_size) {
+        DebugMessage(M64MSG_ERROR, "Core: Set player tag address 0x%X out of RDRAM bounds", virtual_addr);
+        return 0;
+    }
+
+    int setTagAddr = rdram->dram[physical_offset >> 2];
+    g_dev.r4300.pc->addr = setTagAddr;
+    
+}
+
+void install_player_tag(const char* text, uint32_t string_index, uint32_t port, uint32_t enable_table_addr)
+{
+    uint32_t string_addr = write_string_to_rdram(text);
+
+    write_string_table_entry(string_index, string_addr);
+
+    enable_custom_tag_for_port(
+        enable_table_addr,
+        port,
+        string_index
+    );
+}
+
+
+static void write_byte(uint32_t addr, uint8_t value)
+{
+    uint32_t shift = (3 - (addr & 3)) * 8;
+    uint32_t mask  = 0xFF << shift;
+    uint32_t data  = (uint32_t)value << shift;
+
+    r4300_write_aligned_word(&g_dev.r4300, addr, data, mask);
+}
+
+uint32_t write_string_to_rdram(const char* text)
+{
+    size_t len = strlen(text) + 1; // include NUL
+    uint32_t addr = alloc_string_rdram(len);
+
+    for (size_t i = 0; i < len; i++)
+    {
+        write_byte(&g_dev.r4300, addr + (uint32_t)i, (uint8_t)text[i]);
+    }
+
+    return addr;
+}
+
+void write_string_table_entry(uint32_t index, uint32_t string_addr, uint32_t string_table)
+{
+    uint32_t entry_addr = string_table + (index * 4);
+
+    r4300_write_aligned_word(
+        &g_dev.r4300,
+        entry_addr,
+        string_addr,
+        0xFFFFFFFF
+    );
+}
+
+void enable_custom_tag_for_port(uint32_t enable_table_addr, uint32_t port, uint32_t string_index)
+{
+    uint32_t addr = enable_table_addr + port * 4;
+
+    r4300_write_aligned_word(addr, string_index, 0xFFFFFFFF);
+}
+
 static void main_switch_pak(int control_id)
 {
     struct game_controller* cont = &g_dev.controllers[control_id];

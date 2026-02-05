@@ -116,7 +116,7 @@ typedef enum nrly_msg_type_t
     NRLY_MSG_HELLO = 0x01,
     NRLY_MSG_READY = 0x02,
     NRLY_MSG_ERROR = 0x03,
-    NRLY_MSG_DATA_BIND = 0x04,
+    NRLY_MSG_DATA_BIND = 0x10,
 } nrly_msg_type_t;
 
 // Failure types that ENet can give
@@ -145,7 +145,7 @@ input_slot l_input_ring[4][INPUT_BUF];
 #define RELAY_DATA_PORT 27015 // Server port for relaying packets
 #define RELAY_CTRL_PORT 27016 // Server port for establishing connection
 
-#define NETPLAY_DEFAULT_INPUT_DELAY 9
+#define NETPLAY_DEFAULT_INPUT_DELAY 6
 
 // Disconnect helper
 static void disconnect_and_cleanup(void);
@@ -1468,7 +1468,7 @@ static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
 
     uint16_t token_len = (uint16_t)strlen(token);
 
-    // Packet: 'N''R''L''Y' [ver=1] [type=0x04] [tokenLen u16be] [token bytes]
+    // Packet: 'N''R''L''Y' [ver=1] [type=0x10] [tokenLen u16be] [token bytes]
     size_t pkt_len = 4 + 1 + 1 + 2 + token_len;
     uint8_t* pkt = (uint8_t*)malloc(pkt_len);
     if (!pkt)

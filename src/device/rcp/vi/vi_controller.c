@@ -246,6 +246,11 @@ void vi_vertical_interrupt_event(void* opaque)
     
     last_game_status = current_game_status;
 
+    if (match_ongoing)
+    {
+        main_render_player_tag();
+    }
+
 
     /* schedule next vertical interrupt */
     uint32_t next_vi = *get_event(&vi->mi->r4300->cp0.q, VI_INT) + vi->delay;

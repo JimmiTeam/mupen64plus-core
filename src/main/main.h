@@ -88,10 +88,7 @@ void main_state_inc_slot(void);
 void main_state_load(const char *filename);
 void main_state_save(int format, const char *filename);
 
-void main_render_player_tag(void);
-void write_string_to_rdram(uint32_t string_index, const char* str);
-void enable_custom_tag_for_port(uint8_t port_index, uint32_t string_index);
-void disable_custom_tag_for_port(uint8_t port_index);
+void main_patch_player_tags(const char* host_name, const char* client_name);
 
 
 m64p_error main_core_state_query(m64p_core_param param, int *rval);

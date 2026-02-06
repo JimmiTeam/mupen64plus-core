@@ -122,13 +122,6 @@ m64p_media_loader g_media_loader;
 
 int g_gs_vi_counter = 0;
 
-#define CUSTOM_TAG_STRING_POOL_START  0x80123800u
-#define CUSTOM_TAG_STRING_POOL_END    0x80124000u
-#define STRING_TABLE_BASE_ADDR         0x80138E10u  // CharacterSelectDebugMenu.PlayerTag.string_table
-#define CUSTOM_TAG_FOR_PORT_BASE_ADDR  0x801237B0u
-
-static uint32_t g_tag_string_pool_next = CUSTOM_TAG_STRING_POOL_START;
-
 struct controller_input_compat* g_cin_by_port[] = { NULL, NULL, NULL, NULL };
 
 /** static (local) variables **/
@@ -161,11 +154,6 @@ static char timestamp_folder[1024];
 * static functions
 */
 
-static inline uint32_t viraddr_to_physaddr(uint32_t viraddr)
-{
-    return viraddr & 0x1FFFFFFF;
-}
-
 static inline void rdram_write_u8(uint32_t addr, uint8_t v)
 {
     const uint32_t physaddr = viraddr_to_physaddr(addr);
@@ -180,6 +168,13 @@ static inline void rdram_write_u8(uint32_t addr, uint8_t v)
 static inline void rdram_write_u32(uint32_t addr, uint32_t value)
 {
     r4300_write_aligned_word(&g_dev.r4300, viraddr_to_physaddr(addr), value, 0xFFFFFFFFu);
+}
+
+static inline uint32_t rdram_read_u32(uint32_t addr)
+{
+    uint32_t value = 0;
+    r4300_read_aligned_word(&g_dev.r4300, viraddr_to_physaddr(addr), &value);
+    return value;
 }
 
 static const char *get_savepathdefault(const char *configpath)
@@ -1122,6 +1117,7 @@ static void pause_loop(void)
 void new_vi(void)
 {
     int recording_enabled = replay_manager_is_enabled();
+    int playback_enabled = playback_manager_is_enabled();
     int current_game_state = game_manager_get_game_status();
 
     if (last_game_state == REMIX_STATUS_WAIT &&
@@ -1151,6 +1147,19 @@ void new_vi(void)
         }
         free(replay_folder);
     }
+    else if (last_game_state == REMIX_STATUS_ONGOING &&
+        current_game_state == REMIX_STATUS_MATCHEND &&
+        playback_enabled)
+    {
+        main_stop();
+    }
+    else if (last_game_state == REMIX_STATUS_RESET &&
+        current_game_state == REMIX_STATUS_WAIT &&
+        netplay_is_init())
+    {
+        /* TODO: replace placeholders with actual player names from netplay config */
+        main_patch_player_tags("HostPlayer", "ClientPlayer");
+    }
     
     last_game_state = current_game_state;
 
@@ -1172,6 +1181,12 @@ void new_vi(void)
         free(replay_folder);
     }
 
+    if (current_game_screen == REMIX_SCREEN_CSS &&
+        !game_manager_is_css_back_button_disabled())
+    {
+        game_manager_disable_css_back_button();
+    }
+
     last_game_screen = current_game_screen;
 
 
@@ -1190,98 +1205,118 @@ void new_vi(void)
 
 }
 
-void main_render_player_tag()
+/* Write a NUL-terminated player name into a string-table slot.
+ *
+ * The string table is an array of 4-byte pointers (one per slot).
+ * Each pointer references a NUL-terminated string buffer elsewhere in RDRAM
+ * (e.g. Toggles.entry_player_tags_N + 0x28).
+ *
+ * |table_vaddr|  - KSEG0 base of the pointer array.
+ * |string_index| - which slot to target (0 = "Default", 1-20 = custom tags).
+ * |str|          - NUL-terminated name to write (max PLAYER_TAG_MAX_LEN-1 chars). */
+static void write_tag_string(uint32_t table_vaddr, uint32_t string_index,
+                             const char* str)
 {
+    /* Read the pointer stored at string_table[string_index] */
+    const uint32_t ptr_addr = table_vaddr + (string_index * 4u);
+    const uint32_t str_vaddr = rdram_read_u32(ptr_addr);
+
+    if (str_vaddr == 0)
+    {
+        DebugMessage(M64MSG_WARNING,
+            "write_tag_string: string_table[%u] is NULL", string_index);
+        return;
+    }
+
+    /* Validate the target pointer is in KSEG0/KSEG1 */
+    uint32_t seg = str_vaddr >> 29;
+    if (seg != 4 && seg != 5)
+    {
+        DebugMessage(M64MSG_WARNING,
+            "write_tag_string: string_table[%u] -> 0x%08X (bad segment)",
+            string_index, str_vaddr);
+        return;
+    }
+
+    /* Write the name into the target buffer, NUL-terminated */
+    uint32_t i;
+    for (i = 0; i < (uint32_t)(PLAYER_TAG_MAX_LEN - 1); i++)
+    {
+        uint8_t c = (str && str[i] != '\0') ? (uint8_t)str[i] : 0;
+        rdram_write_u8(str_vaddr + i, c);
+        if (c == 0)
+            break;
+    }
+    /* NUL-terminate */
+    rdram_write_u8(str_vaddr + i, 0);
+
+    DebugMessage(M64MSG_INFO,
+        "write_tag_string: slot %u -> 0x%08X = \"%s\"",
+        string_index, str_vaddr, str ? str : "");
+}
+
+/* Set the per-port value-array entry.
+ * |array_vaddr| is the KSEG0 base of the value array.
+ * |port| is the controller port (0-3).
+ * |string_index| is the string-table index to select (0 = disabled). */
+static void set_port_tag_index(uint32_t array_vaddr, uint8_t port,
+                               uint32_t string_index)
+{
+    rdram_write_u32(array_vaddr + ((uint32_t)port * 4u), string_index);
+}
+
+void main_patch_player_tags(const char* host_name, const char* client_name)
+{
+    struct rdram_symbol_result sym;
+    static const uint8_t label[] = "Player Tag";
+
+    if (!rdram_locate_symbol(&g_dev.rdram, label, &sym))
+    {
+        DebugMessage(M64MSG_WARNING,
+            "main_patch_player_tags: could not locate Player Tag structure");
+        return;
+    }
+
+    DebugMessage(M64MSG_INFO,
+        "Patching player tags: strtab=0x%08X varr=0x%08X",
+        sym.string_table_vaddr, sym.value_array_vaddr);
+
+    /* Clear all 4 ports first */
     for (uint8_t port = 0; port < 4; port++)
-        disable_custom_tag_for_port(port);
+        set_port_tag_index(sym.value_array_vaddr, port, 0);
 
-    write_string_to_rdram(1, "test1");
-    write_string_to_rdram(2, "test2");
-    write_string_to_rdram(3, "test3");
-    write_string_to_rdram(4, "test4");
+    /* Write host name into string-table slot 1, client into slot 2 */
+    write_tag_string(sym.string_table_vaddr, 1, host_name);
+    write_tag_string(sym.string_table_vaddr, 2, client_name);
 
+    /* Assign tags: host is player 1 (port 0), client is player 2 (port 1).
+     * Map through netplay controller mapping when available. */
     for (uint8_t port = 0; port < 4; port++)
     {
         int controller_id = (int)port;
         if (netplay_is_init())
             controller_id = netplay_get_controller(port);
 
-        if (controller_id < 0) controller_id = 0;
-        if (controller_id > 3) controller_id = 3;
+        if (controller_id < 0 || controller_id > 3)
+            continue;
 
-        const uint32_t string_index = (uint32_t)controller_id + 1u;
-        enable_custom_tag_for_port(port, string_index);
+        /* controller_id 0 → host (string index 1)
+         * controller_id 1 → client (string index 2)
+         * others → no tag */
+        uint32_t string_index = 0;
+        if (controller_id == 0)
+            string_index = 1;
+        else if (controller_id == 1)
+            string_index = 2;
+
+        set_port_tag_index(sym.value_array_vaddr, port, string_index);
     }
+
+    DebugMessage(M64MSG_INFO,
+        "Player tags patched: P1(host)='%s' P2(client)='%s'",
+        host_name  ? host_name  : "(null)",
+        client_name ? client_name : "(null)");
 }
-
-void write_string_to_rdram(uint32_t string_index, const char* str)
-{
-    const uint32_t base = STRING_TABLE_BASE_ADDR + (string_index * 0x10u);
-
-    for (uint32_t i = 0; i < 0x10u; i++)
-    {
-        uint8_t c = 0;
-        if (str && str[i] != '\0')
-        {
-            c = (uint8_t)str[i];
-        }
-
-        rdram_write_u8(base + i, c);
-
-        if (c == 0)
-        {
-            for (uint32_t j = i + 1; j < 0x10u; j++)
-            {
-                rdram_write_u8(base + j, 0);
-            }
-            return;
-        }
-    }
-    rdram_write_u8(base + (20 - 1u), 0);
-}
-
-void enable_custom_tag_for_port(uint8_t port_index, uint32_t string_index)
-{
-    const uint32_t addr = CUSTOM_TAG_FOR_PORT_BASE_ADDR + ((uint32_t)port_index * 4u);
-    rdram_write_u32(addr, string_index);
-}
-
-void disable_custom_tag_for_port(uint8_t port_index)
-{
-    enable_custom_tag_for_port(port_index, 0);
-}
-
-// int install_player_tag(const char* text, uint32_t string_index, int port)
-// {
-//     if (!text) return 0;
-//     if (port < 0 || port >= 4) return 0;
-//     if (string_index == 0) return 0;
-
-//     uint32_t len = (uint32_t)strlen(text);
-//     uint32_t string_addr = alloc_string_rdram(len);
-//     if (string_addr == 0) return 0;
-
-//     write_string_to_rdram(string_addr, text, len);
-
-//     rdram_write_u32(STRING_TABLE_BASE_ADDR + string_index * 4u, string_addr);
-
-//     return enable_custom_tag_for_port(port, string_index);
-// }
-
-
-// uint32_t alloc_string_rdram(uint32_t len)
-// {
-//     uint32_t need = len + 1;
-
-//     uint32_t addr = (g_tag_string_pool_next + 3u) & ~3u;
-//     uint32_t next = addr + need;
-
-//     if (next > CUSTOM_TAG_STRING_POOL_END)
-//         return 0;
-
-//     g_tag_string_pool_next = next;
-//     return addr;
-// }
 
 
 static void main_switch_pak(int control_id)

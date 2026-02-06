@@ -227,10 +227,14 @@ void vi_vertical_interrupt_event(void* opaque)
     }
     else if (f_new == 1 && netplay_is_init())
     {
-        char state_path[4096];
-        ConfigGetParameter(g_CoreConfig, "NetplayStatePath", M64TYPE_STRING, state_path, sizeof(state_path));
-        DebugMessage(M64MSG_INFO, "Queueing initial netplay save state load: %s", state_path);
-        savestates_set_job(savestates_job_load, savestates_type_m64p, state_path);
+        // char state_path[4096];
+        // ConfigGetParameter(g_CoreConfig, "NetplayStatePath", M64TYPE_STRING, state_path, sizeof(state_path));
+        // DebugMessage(M64MSG_INFO, "Queueing initial netplay save state load: %s", state_path);
+        // savestates_set_job(savestates_job_load, savestates_type_m64p, state_path);
+        // game_manager_disable_css_back_button();
+
+        /* TODO: replace placeholders with actual player names from netplay config */
+        main_patch_player_tags("HostPlayer", "ClientPlayer");
     }
 
     // Read input file if in playback mode
@@ -245,11 +249,6 @@ void vi_vertical_interrupt_event(void* opaque)
     }
     
     last_game_status = current_game_status;
-
-    if (match_ongoing)
-    {
-        main_render_player_tag();
-    }
 
 
     /* schedule next vertical interrupt */

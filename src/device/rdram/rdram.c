@@ -33,7 +33,14 @@
 #define RDRAM_BCAST_ADDRESS_MASK UINT32_C(0x00080000)
 #define RDRAM_MODE_CE_MASK UINT32_C(0x80000000)
 
-/* XXX: deduce # of RDRAM modules from it's total size
+/* Jimmi constants for player tags */
+#define MENU_ITEM_SYMBOL_PTR_OFFSET    0x00
+#define MENU_ITEM_VALUE_TYPE_OFFSET    0x04
+#define MENU_ITEM_STRING_TABLE_OFFSET  0x14
+#define MENU_ITEM_VALUE_ARRAY_OFFSET   0x1C
+#define MENU_ITEM_MIN_SIZE             0x20
+
+/* XXX: deduce # of RDRAM modules from its total size
  * Assume only 2Mo RDRAM modules.
  * Proper way of doing it would be to declare in init_rdram
  * what kind of modules we insert and deduce dram_size from
@@ -261,4 +268,160 @@ void write_rdram_dram(void* opaque, uint32_t address, uint32_t value, uint32_t m
     {
         masked_write(&rdram->dram[addr], value, mask);
     }
+}
+
+/* Jimmi */
+static int find_bytes(const uint8_t* mem, size_t mem_len,
+                      const uint8_t* target,   size_t target_len,
+                      size_t* out_offset)
+{
+    if (!mem || !target || target_len == 0 || mem_len < target_len)
+        return 0;
+
+    for (size_t i = 0; i + target_len <= mem_len; i++)
+    {
+        if (mem[i] == target[0] &&
+            memcmp(mem + i, target, target_len) == 0)
+        {
+            if (out_offset)
+                *out_offset = i;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int find_u32_be_all(const uint8_t* mem, size_t mem_len,
+                           uint32_t target,
+                           size_t* out_offsets, size_t out_cap,
+                           size_t* out_count)
+{
+    size_t count = 0;
+    if (!mem || mem_len < 4)
+        return 0;
+
+    for (size_t off = 0; off + 4 <= mem_len; off += 4)
+    {
+        if (read_u32_be(mem + off) == target)
+        {
+            if (count < out_cap)
+                out_offsets[count] = off;
+            count++;
+        }
+    }
+
+    if (out_count)
+        *out_count = count;
+    return count != 0;
+}
+
+int rdram_locate_symbol(const struct rdram* r, const uint8_t* symbol,
+                        struct rdram_symbol_result* out)
+{
+    if (!r || !symbol || !out)
+    {
+        DebugMessage(M64MSG_WARNING, "rdram_locate_symbol: Invalid parameters");
+        return 0;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    size_t symbol_paddr = 0;
+    const uint8_t* rdram_data = rdram_bytes(r);
+    size_t rdram_size = rdram_bytes_size(r);
+
+    size_t symbol_len = 0;
+    while (symbol[symbol_len] != '\0' && symbol_len < 256)
+        symbol_len++;
+
+    if (symbol_len == 0 || symbol_len >= 256)
+    {
+        DebugMessage(M64MSG_WARNING, "Invalid symbol length: %zu", symbol_len);
+        return 0;
+    }
+
+    if (!find_bytes(rdram_data, rdram_size, symbol, symbol_len, &symbol_paddr))
+    {
+        DebugMessage(M64MSG_WARNING, "Symbol not found in RDRAM: %.32s", symbol);
+        return 0;
+    }
+
+    DebugMessage(M64MSG_STATUS, "Found symbol at physical offset 0x%X", (uint32_t)symbol_paddr);
+
+    uint32_t symbol_addrs[3] = {
+        0x80000000u | (uint32_t)symbol_paddr,
+        0xA0000000u | (uint32_t)symbol_paddr,
+        (uint32_t)symbol_paddr
+    };
+
+    size_t hits[64];
+    size_t hit_count = 0;
+
+    for (int addr_idx = 0; addr_idx < 3; addr_idx++)
+    {
+        hit_count = 0;
+        if (find_u32_be_all(rdram_data, rdram_size, symbol_addrs[addr_idx],
+                           hits, 64, &hit_count) && hit_count > 0)
+        {
+            DebugMessage(M64MSG_INFO, "Found %zu references to symbol (format: 0x%08X)",
+                        hit_count, symbol_addrs[addr_idx]);
+            break;
+        }
+    }
+
+    if (hit_count == 0)
+    {
+        DebugMessage(M64MSG_WARNING, "No references to symbol found in RDRAM");
+        return 0;
+    }
+
+    for (size_t i = 0; i < hit_count; i++)
+    {
+        size_t struct_offset = hits[i];
+
+        if (struct_offset + MENU_ITEM_MIN_SIZE > rdram_size)
+        {
+            DebugMessage(M64MSG_WARNING, "Potential structure at 0x%X exceeds RDRAM bounds",
+                        (uint32_t)struct_offset);
+            continue;
+        }
+
+        uint32_t symbol_ptr = read_u32_be(rdram_data + struct_offset + MENU_ITEM_SYMBOL_PTR_OFFSET);
+        uint16_t value_type = read_u16_be(rdram_data + struct_offset + MENU_ITEM_VALUE_TYPE_OFFSET);
+        uint32_t string_table_ptr = read_u32_be(rdram_data + struct_offset + MENU_ITEM_STRING_TABLE_OFFSET);
+        uint32_t value_array_ptr = read_u32_be(rdram_data + struct_offset + MENU_ITEM_VALUE_ARRAY_OFFSET);
+
+        uint32_t seg = symbol_ptr >> 29;
+        if (seg != 4 && seg != 5) /* 4 = KSEG0 (0x8xxx), 5 = KSEG1 (0xAxxx) */
+        {
+            DebugMessage(M64MSG_STATUS, "Skipping hit at 0x%X (pointer 0x%08X not in KSEG0/KSEG1)",
+                        (uint32_t)struct_offset, symbol_ptr);
+            continue;
+        }
+
+        /* Validate string_table_ptr and value_array_ptr are in KSEG0/KSEG1 */
+        uint32_t st_seg = string_table_ptr >> 29;
+        uint32_t va_seg = value_array_ptr >> 29;
+        if ((st_seg != 4 && st_seg != 5) || (va_seg != 4 && va_seg != 5))
+        {
+            DebugMessage(M64MSG_STATUS, "Skipping hit at 0x%X (strtab/varr not in KSEG0/KSEG1)",
+                        (uint32_t)struct_offset);
+            continue;
+        }
+
+        DebugMessage(M64MSG_INFO,
+            "Menu item found at 0x%08X | symbol=0x%08X | type=0x%04X | strtab=0x%08X | varr=0x%08X",
+            physaddr_to_kseg0((uint32_t)struct_offset), symbol_ptr, value_type,
+            string_table_ptr, value_array_ptr);
+
+        /* Return the first valid hit */
+        out->struct_vaddr    = physaddr_to_kseg0((uint32_t)struct_offset);
+        out->string_table_vaddr = string_table_ptr;
+        out->value_array_vaddr  = value_array_ptr;
+        out->value_type      = value_type;
+        return 1;
+    }
+
+    DebugMessage(M64MSG_WARNING, "No valid menu item structure found for symbol");
+    return 0;
 }

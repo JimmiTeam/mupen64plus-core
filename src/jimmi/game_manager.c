@@ -9,7 +9,6 @@
 const static RemixMeta REMIX_META =  {"Smash Remix", 3236924630, 1440317707};
 
 static int g_GameType = GAME_IS_REMIX;
-static int g_BackButtonDisabled = 0;
 
 // TODO: Make a more reliable validation method (MD5 probably)
 int game_manager_get_is_remix(uint32_t crc1, uint32_t crc2)
@@ -22,9 +21,9 @@ int game_manager_get_is_remix(uint32_t crc1, uint32_t crc2)
     return 0;
 }
 
-// Just assume the game is remix for now
+
 int game_manager_get_game() {
-    return GAME_IS_REMIX;
+    return g_GameType;
 }
 
 
@@ -98,32 +97,4 @@ int game_manager_get_last_screen()
     last_screen = rdram->dram[physical_offset >> 2];
 
     return last_screen;
-}
-
-void game_manager_disable_css_back_button()
-{
-    struct rdram* rdram = &g_dev.rdram;
-    uint32_t virtual_addr = 0x80138218;  // CSS function to check if back button was pressed
-    uint32_t physical_offset = virtual_addr & 0x3FFFFF;  // Convert to physical RDRAM offset
-
-    // Validate address is within RDRAM bounds
-    if (physical_offset >= rdram->dram_size) {
-        DebugMessage(M64MSG_ERROR, "Game Manager: Address 0x%X out of RDRAM bounds", virtual_addr);
-        return 0;
-    }
-
-    uint32_t nop_return = 0x24000000;  // addiu v0, r0, 0
-    rdram->dram[physical_offset >> 2] = nop_return;
-
-    // Write: jr ra (jump to return address)
-    uint32_t jr_ra = 0x03E00008;
-    rdram->dram[(physical_offset >> 2) + 1] = jr_ra;
-
-    g_BackButtonDisabled = 1;
-    DebugMessage(M64MSG_INFO, "Game Manager: CSS back button disabled");
-}
-
-int game_manager_is_css_back_button_disabled()
-{
-    return g_BackButtonDisabled;
 }

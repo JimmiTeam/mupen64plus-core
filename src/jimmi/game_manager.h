@@ -30,12 +30,10 @@ enum
 };
 
 int game_manager_get_is_remix(uint32_t crc1, uint32_t crc2);
-int game_manager_get_game_status(void);
-int game_manager_get_stage_id(void);
-int game_manager_get_game(void);
-int game_manager_get_current_screen(void);
-int game_manager_get_last_screen(void);
-void game_manager_disable_css_back_button(void);
-int game_manager_is_css_back_button_disabled(void);
+int game_manager_get_game_status();
+int game_manager_get_stage_id();
+int game_manager_get_game();
+int game_manager_get_current_screen();
+int game_manager_get_last_screen();
 
 #endif /* M64P_JIMMI_GAME_MANAGER_H */

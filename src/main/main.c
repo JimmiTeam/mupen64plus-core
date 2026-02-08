@@ -154,29 +154,6 @@ static char timestamp_folder[1024];
 * static functions
 */
 
-static inline void rdram_write_u8(uint32_t addr, uint8_t v)
-{
-    const uint32_t physaddr = viraddr_to_physaddr(addr);
-    const uint32_t aligned = physaddr & ~3u;
-    const uint32_t byte_off = physaddr & 3u;
-    const uint32_t shift = (3u - byte_off) * 8u;
-    const uint32_t mask = 0xFFu << shift;
-    const uint32_t value = ((uint32_t)v) << shift;
-    r4300_write_aligned_word(&g_dev.r4300, aligned, value, mask);
-}
-
-static inline void rdram_write_u32(uint32_t addr, uint32_t value)
-{
-    r4300_write_aligned_word(&g_dev.r4300, viraddr_to_physaddr(addr), value, 0xFFFFFFFFu);
-}
-
-static inline uint32_t rdram_read_u32(uint32_t addr)
-{
-    uint32_t value = 0;
-    r4300_read_aligned_word(&g_dev.r4300, viraddr_to_physaddr(addr), &value);
-    return value;
-}
-
 static const char *get_savepathdefault(const char *configpath)
 {
     static char path[1024];
@@ -1147,6 +1124,11 @@ void new_vi(void)
         }
         free(replay_folder);
     }
+    else if (last_game_state == REMIX_STATUS_WAIT &&
+             current_game_state == REMIX_STATUS_ONGOING)
+    {
+        main_render_player_tag(0);  
+    }
     
     last_game_state = current_game_state;
 
@@ -1192,19 +1174,11 @@ void new_vi(void)
 
 }
 
-static uint32_t main_render_player_tags(uint32_t port)
+static uint32_t main_render_player_tag(uint32_t port)
 {
-    uint32_t file26Base = mem_read32(g_dev.r4300.regs[8] + 0xA04C); // reg 8 is t0 in R4300
-    uint32_t tagImageAddr = file26Base + 0x1158;
-    uint32_t stringTable = file26Base + 0x14;
-
     g_dev.r4300.regs[18] = port;
-    g_dev.r4300.regs[2] = tagImageAddr;
-    g_dev.r4300.regs[29] = 0x803FF00;
     const uint32_t RETURN_PC = 0xDEADBEEF;
     g_dev.r4300.regs[31] = RETURN_PC;
-
-    install_player_tag("hello", 0, 1, 0);
     
     uint32_t virtual_addr = 0x80111D1C;
     uint32_t physical_offset = virtual_addr & 0x3FFFFF;
@@ -1216,15 +1190,10 @@ static uint32_t main_render_player_tags(uint32_t port)
 
     int setTagAddr = rdram->dram[physical_offset >> 2];
     g_dev.r4300.pc->addr = setTagAddr;
-    
 }
 
 void install_player_tag(const char* text, uint32_t string_index, uint32_t port, uint32_t enable_table_addr)
 {
-    uint32_t string_addr = write_string_to_rdram(text);
-
-    write_string_table_entry(string_index, string_addr);
-
     enable_custom_tag_for_port(
         enable_table_addr,
         port,
@@ -1232,6 +1201,12 @@ void install_player_tag(const char* text, uint32_t string_index, uint32_t port, 
     );
 }
 
+void enable_custom_tag_for_port(uint32_t enable_table_addr, uint32_t port, uint32_t string_index)
+{
+    uint32_t addr = enable_table_addr + port * 4;
+
+    r4300_write_aligned_word(addr, string_index, 0xFFFFFFFF);
+}
 
 static void write_byte(uint32_t addr, uint8_t value)
 {
@@ -1242,6 +1217,7 @@ static void write_byte(uint32_t addr, uint8_t value)
     r4300_write_aligned_word(&g_dev.r4300, addr, data, mask);
 }
 
+// unused for now
 uint32_t write_string_to_rdram(const char* text)
 {
     size_t len = strlen(text) + 1; // include NUL
@@ -1255,6 +1231,7 @@ uint32_t write_string_to_rdram(const char* text)
     return addr;
 }
 
+// unused for now
 void write_string_table_entry(uint32_t index, uint32_t string_addr, uint32_t string_table)
 {
     uint32_t entry_addr = string_table + (index * 4);
@@ -1267,12 +1244,6 @@ void write_string_table_entry(uint32_t index, uint32_t string_addr, uint32_t str
     );
 }
 
-void enable_custom_tag_for_port(uint32_t enable_table_addr, uint32_t port, uint32_t string_index)
-{
-    uint32_t addr = enable_table_addr + port * 4;
-
-    r4300_write_aligned_word(addr, string_index, 0xFFFFFFFF);
-}
 
 static void main_switch_pak(int control_id)
 {

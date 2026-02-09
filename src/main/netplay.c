@@ -164,7 +164,7 @@ static uint32_t g_netplay_rollback_count = 0;     /* Total number of rollbacks p
 static uint32_t g_netplay_rollback_frames_total = 0; /* Total frames rolled back */  /* highest VI with confirmed input per player */
 
 #define RELAY_DATA_PORT 27015 // Server port for relaying packets
-#define RELAY_CTRL_PORT 27016 // Server port for establishing connection
+#define RELAY_CTRL_PORT 6420 // Server port for establishing connection
 
 // Netplay input buffer delay:
 // Traditional delay-based netplay used 6 frames to ensure inputs arrive before needed.
@@ -187,11 +187,10 @@ static uint32_t l_last_confirmed_vi[4];  /* highest VI with confirmed input per 
 // Disconnect helper
 static void disconnect_and_cleanup(void);
 
-// Make contact with relay server and submit data
+// Make contact with relay server and get peer address
 static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
-                                const char* token, uint16_t local_data_port);
-static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
-                                uint16_t data_port, const char* token);
+                                const char* token, uint16_t local_data_port,
+                                ENetAddress* out_peer_addr);
 
 
 m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
@@ -236,8 +235,9 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
 
     DebugMessage(M64MSG_INFO, "Netplay: Local ENet port=%u. Sending relay HELLO...", (unsigned)local_port);
 
-    // CONTROL handshake on 27016
-    if (!relay_ctrl_handshake(relay_host, RELAY_CTRL_PORT, token, local_port))
+    // CONTROL handshake on 6420 - get peer address from rendezvous server
+    ENetAddress peer_addr = { 0 };
+    if (!relay_ctrl_handshake(relay_host, RELAY_CTRL_PORT, token, local_port, &peer_addr))
     {
         DebugMessage(M64MSG_ERROR, "Netplay: Relay CONTROL handshake failed.");
         enet_host_destroy(l_host);
@@ -246,102 +246,49 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
         return M64ERR_SYSTEM_FAIL;
     }
 
-    if (!relay_data_bind(l_host->socket, relay_host, RELAY_DATA_PORT, token))
+    DebugMessage(M64MSG_INFO, "Netplay: Received peer address from rendezvous server");
+
+    // Direct peer-to-peer connection with NAT hole punching
+    // Both clients simultaneously attempt to connect to each other
+    DebugMessage(M64MSG_INFO, "Netplay: Attempting direct P2P connection to peer...");
+    
+    // Initiate connection to peer
+    ENetPeer* outgoing_peer = enet_host_connect(l_host, &peer_addr, 2, 0);
+    if (!outgoing_peer)
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: Relay DATA_BIND failed.");
+        DebugMessage(M64MSG_ERROR, "Netplay: Failed to initiate connection to peer.");
         enet_host_destroy(l_host);
         enet_deinitialize();
         l_host = NULL;
         return M64ERR_SYSTEM_FAIL;
     }
-
-    // ENet connection to relay data port 27015
-    ENetAddress relay_addr = { 0 };
-    if (enet_address_set_host(&relay_addr, relay_host) != 0)
+    
+    ENetEvent event;
+    int ok = 0;
+    uint32_t start = SDL_GetTicks();
+    
+    // Wait for connection to establish
+    while ((SDL_GetTicks() - start) < 15000)
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: Failed to resolve relay host %s", relay_host);
-        enet_host_destroy(l_host);
-        enet_deinitialize();
-        l_host = NULL;
+        int r = enet_host_service(l_host, &event, 100);
+        if (r > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
+        {
+            l_peer = event.peer;
+            ok = 1;
+            DebugMessage(M64MSG_INFO, "Netplay: P2P connection established!");
+            break;
+        }
+        if (r > 0 && event.type == ENET_EVENT_TYPE_DISCONNECT)
+        {
+            DebugMessage(M64MSG_WARNING, "Netplay: Connection attempt failed, retrying...");
+        }
+    }
+    
+    if (!ok)
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: P2P connection timeout.");
+        disconnect_and_cleanup();
         return M64ERR_SYSTEM_FAIL;
-    }
-    relay_addr.port = RELAY_DATA_PORT;
-
-    // If you're the host, wait for client to connect and set them to l_peer
-    if (l_is_host)
-    {
-        ENetEvent event;
-        int ok = 0;
-        uint32_t start = SDL_GetTicks();
-        
-        SDL_Delay(100);
-    
-        while ((SDL_GetTicks() - start) < 15000)
-        {
-            int r = enet_host_service(l_host, &event, 100);
-            if (r > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
-            {
-                l_peer = event.peer;
-                ok = 1;
-                break;
-            }
-        }
-    
-        if (!ok)
-        {
-            DebugMessage(M64MSG_ERROR, "Netplay: ENet connect timeout.");
-                
-            enet_host_destroy(l_host);
-            enet_deinitialize();
-            l_host = NULL;
-            return M64ERR_SYSTEM_FAIL;
-        }
-    }
-    // Otherwise, l_peer is the host and you connect to them
-    else
-    {
-        l_peer = enet_host_connect(l_host, &relay_addr, 2, 0);
-        if (!l_peer)
-        {
-            DebugMessage(M64MSG_ERROR, "Netplay: Failed to connect to relay data port.");
-            enet_host_destroy(l_host);
-            enet_deinitialize();
-            l_host = NULL;
-            return M64ERR_SYSTEM_FAIL;
-        }
-    
-        ENetEvent event;
-        int ok = 0;
-        int rejected = 0;
-        uint32_t start = SDL_GetTicks();
-        
-        SDL_Delay(100);
-    
-        while ((SDL_GetTicks() - start) < 15000)
-        {
-            int r = enet_host_service(l_host, &event, 100);
-            if (r > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
-            {
-                ok = 1;
-                break;
-            }
-            if (r > 0 && event.type == ENET_EVENT_TYPE_DISCONNECT)
-            {
-                rejected = 1; // Mostly here for debugging, tells whether client timed out or was actively rejected
-                break;
-            }
-        }
-    
-        if (!ok)
-        {
-            if (rejected)
-                DebugMessage(M64MSG_ERROR, "Netplay: Connection rejected by Relay.");
-            else
-                DebugMessage(M64MSG_ERROR, "Netplay: ENet connect timeout.");
-                
-            disconnect_and_cleanup();
-            return M64ERR_SYSTEM_FAIL;
-        }
     }
 
     // Initialize netplay state
@@ -482,7 +429,6 @@ static uint8_t buffer_size(uint8_t control_id)
     return counter;
 }
 
-// Check if we already have this input stored
 static int check_valid(uint8_t control_id, uint32_t count)
 {
     int idx = count % INPUT_BUF;
@@ -494,7 +440,7 @@ static int check_valid(uint8_t control_id, uint32_t count)
 // Check for misprediction and trigger rollback if needed
 static void netplay_check_rollback(uint8_t player, uint32_t vi)
 {
-    // Don't check if this is a future VI (hasn't happened yet)
+    // Don't check if this is a future VI
     if (vi >= l_vi_counter)
         return;
 
@@ -507,7 +453,7 @@ static void netplay_check_rollback(uint8_t player, uint32_t vi)
     // Get the confirmed input that just arrived
     uint32_t confirmed_inputs = l_input_ring[player][idx].inputs;
     
-    // Check if we had predicted this VI
+    // Check if this VI was predicted but not confirmed yet
     if (l_rollback_inputs[player][idx].is_predicted == 1 && 
         l_rollback_inputs[player][idx].is_confirmed == 0)
     {
@@ -522,7 +468,7 @@ static void netplay_check_rollback(uint8_t player, uint32_t vi)
             // Calculate how many frames need to be rolled back
             uint32_t frames_back = l_vi_counter - vi;
             
-            // Check if we have enough saved states to rollback
+            // Check if we have enough saved states to roll back
             if (frames_back > 0 && frames_back <= rollback_count())
             {
                 DebugMessage(M64MSG_INFO, "Netplay: Triggering rollback %u frames (VI %u -> %u for P%u)", 
@@ -542,20 +488,20 @@ static void netplay_check_rollback(uint8_t player, uint32_t vi)
         }
         else
         {
-            // Prediction was correct, just mark as confirmed
+            // Prediction was correct, mark as confirmed
             l_rollback_inputs[player][idx].confirmed_inputs = confirmed_inputs;
             l_rollback_inputs[player][idx].is_confirmed = 1;
         }
     }
     else if (l_rollback_inputs[player][idx].is_confirmed == 0)
     {
-        // No record of prediction, just store the confirmed input
+        // VI was never predicted, just store the confirmed input
         l_rollback_inputs[player][idx].confirmed_inputs = confirmed_inputs;
         l_rollback_inputs[player][idx].is_confirmed = 1;
     }
 }
 
-// Perform rollback to mispredicted VI and allow natural re-simulation
+// Perform rollback to mispredicted VI
 static void netplay_perform_rollback()
 {
     if (!g_netplay_rollback_needed || g_netplay_rollback_frames_back == 0)
@@ -565,18 +511,16 @@ static void netplay_perform_rollback()
                  g_netplay_rollback_target_vi, g_netplay_rollback_frames_back);
 
     // Load savestate from rollback ring buffer
-    // This restores the entire device state to the point where the mispredicted VI begins
-    rollback_load(&g_dev, g_netplay_rollback_frames_back);
+    if (!rollback_load(&g_dev, g_netplay_rollback_frames_back))
+    {
+        DebugMessage(M64MSG_ERROR, "Netplay: Failed to load state for rollback.");
+        return;
+    }
 
-    // Update prediction tracking: mark the mispredicted input as confirmed
+    // Update prediction tracking
     int idx = g_netplay_rollback_target_vi % INPUT_BUF;
     l_rollback_inputs[g_netplay_rollback_player][idx].is_confirmed = 1;
     l_rollback_inputs[g_netplay_rollback_player][idx].is_predicted = 0;
-    
-    // The CPU will naturally continue executing from the restored state
-    // and fire the next VI interrupt. As frames advance, they will be resimulated
-    // with corrected inputs. Rollback states in the ring buffer are updated
-    // in new_vi() via rollback_save() during normal execution.
 
     // Track rollback statistics
     g_netplay_rollback_count++;
@@ -1493,9 +1437,10 @@ m64p_error netplay_receive_config(char* data, int size)
         return M64ERR_INVALID_STATE;
 }
 
-// Host makes contact with rendezvous server
+// Contact rendezvous server and receive peer address for direct P2P connection
 static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
-                                const char* token, uint16_t local_data_port)
+                                const char* token, uint16_t local_data_port,
+                                ENetAddress* out_peer_addr)
 {
     ENetAddress relay_addr = {0};
 
@@ -1533,7 +1478,7 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     }
 
     size_t off = 0;
-      // Packet: 'N''R''L''Y' [ver=1] [type=0x01] [tokenLen u16be] [token bytes] [local data port] [terminator]
+    // Packet: 'N''R''L''Y' [ver=1] [type=0x01] [tokenLen u16be] [token bytes] [local data port] [terminator]
     pkt[off++] = 'N'; pkt[off++] = 'R'; pkt[off++] = 'L'; pkt[off++] = 'Y';
     pkt[off++] = (uint8_t)NRLY_VERSION;
     pkt[off++] = (uint8_t)NRLY_MSG_HELLO;
@@ -1571,8 +1516,8 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
             last_send = now;
         }
 
-        // Receive READY or ERROR
-        uint8_t rx[64];
+        // Receive READY with peer address, or ERROR
+        uint8_t rx[128];
         ENetBuffer rb;
         rb.data = rx;
         rb.dataLength = sizeof(rx);
@@ -1587,10 +1532,25 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
             {
                 if (rx[5] == (uint8_t)NRLY_MSG_READY)
                 {
-                    DebugMessage(M64MSG_INFO, "Netplay: relay CTRL READY received");
-                    free(pkt);
-                    enet_socket_destroy(sock);
-                    return 1;
+                    // READY packet format: 'NRLY' [ver] [type=0x02] [peer_ip u32be] [peer_port u16be]
+                    if (r >= 12)
+                    {
+                        out_peer_addr->host = Net_Read32(&rx[6]);
+                        out_peer_addr->port = Net_Read16(&rx[10]);
+                        // DebugMessage(M64MSG_INFO, "Netplay: relay CTRL READY received. Peer address: %u.%u.%u.%u:%u",
+                        //     (out_peer_addr->host >> 0) & 0xFF,
+                        //     (out_peer_addr->host >> 8) & 0xFF,
+                        //     (out_peer_addr->host >> 16) & 0xFF,
+                        //     (out_peer_addr->host >> 24) & 0xFF,
+                        //     out_peer_addr->port);
+                        free(pkt);
+                        enet_socket_destroy(sock);
+                        return 1;
+                    }
+                    else
+                    {
+                        DebugMessage(M64MSG_ERROR, "Netplay: READY packet too short (r=%d)", r);
+                    }
                 }
                 if (rx[5] == (uint8_t)NRLY_MSG_ERROR && r >= 7)
                 {
@@ -1616,63 +1576,4 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     free(pkt);
     enet_socket_destroy(sock);
     return 0;
-}
-
-static int relay_data_bind(ENetSocket enet_sock, const char* relay_host,
-                           uint16_t data_port, const char* token)
-{
-    ENetAddress relay_addr = {0};
-
-    if (!token || token[0] == '\0')
-    {
-        DebugMessage(M64MSG_ERROR, "Netplay: DATA_BIND token is empty");
-        return 0;
-    }
-
-    if (enet_address_set_host(&relay_addr, relay_host) != 0)
-    {
-        DebugMessage(M64MSG_ERROR, "Netplay: DATA_BIND resolve failed for '%s'", relay_host);
-        return 0;
-    }
-    relay_addr.port = data_port;
-
-    uint16_t token_len = (uint16_t)strlen(token);
-
-    // Packet: 'N''R''L''Y' [ver=1] [type=0x10] [tokenLen u16be] [token bytes]
-    size_t pkt_len = 4 + 1 + 1 + 2 + token_len;
-    uint8_t* pkt = (uint8_t*)malloc(pkt_len);
-    if (!pkt)
-    {
-        DebugMessage(M64MSG_ERROR, "Netplay: DATA_BIND malloc failed");
-        return 0;
-    }
-
-    size_t off = 0;
-    pkt[off++] = 'N'; pkt[off++] = 'R'; pkt[off++] = 'L'; pkt[off++] = 'Y';
-    pkt[off++] = (uint8_t)NRLY_VERSION;
-    pkt[off++] = (uint8_t)NRLY_MSG_DATA_BIND;
-    Net_Write16(token_len, &pkt[off]);
-    off += 2;
-    memcpy(&pkt[off], token, token_len);
-    off += token_len;
-
-    ENetBuffer b;
-    b.data = pkt;
-    b.dataLength = pkt_len;
-
-    DebugMessage(M64MSG_INFO, "Netplay: sending DATA_BIND to %s:%u (token_len=%u)",
-                 relay_host, (unsigned)data_port, (unsigned)token_len);
-
-    // Send a few times
-    int ok = 0;
-    for (int i = 0; i < 3; ++i)
-    {
-        int sent = enet_socket_send(enet_sock, &relay_addr, &b, 1);
-        if (sent > 0)
-            ok = 1;
-        SDL_Delay(20);
-    }
-
-    free(pkt);
-    return ok;
 }

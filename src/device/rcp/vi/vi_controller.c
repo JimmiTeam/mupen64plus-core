@@ -248,6 +248,15 @@ void vi_vertical_interrupt_event(void* opaque)
     {
         input_plugin_poll_all_controllers_for_frame(f_new);
     }
+
+    if (replays_enabled && !playback_enabled && match_ongoing)
+    {
+        replay_manager_commit_frames(f_new);
+    }
+    else if (replays_enabled && !playback_enabled && last_game_status == REMIX_STATUS_ONGOING && !match_ongoing)
+    {
+        replay_manager_close();
+    }
     
     last_game_status = current_game_status;
 

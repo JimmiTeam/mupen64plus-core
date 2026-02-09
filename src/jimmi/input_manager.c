@@ -1,4 +1,6 @@
 #include "input_manager.h"
+#include "game_manager.h"
+#include "replay_manager.h"
 #include "api/callbacks.h"
 #include <string.h>
 
@@ -84,6 +86,16 @@ void input_manager_record_raw(unsigned int port_index, uint64_t frame_index, uin
     ports[port_index] = decode_input(packed_input);
     has_ports[port_index] = 1;
     from_playback[port_index] = is_playback ? 1 : 0;
+
+    if (!is_playback && replay_manager_is_enabled()
+        && game_manager_get_game_status() == REMIX_STATUS_ONGOING)
+    {
+        FILE *replay_file = replay_manager_get_file();
+        if (replay_file != NULL)
+        {
+            replay_manager_write_input(replay_file, (int)port_index, frame_index, packed_input);
+        }
+    }
 
     // if ((frame_index % 60) == 0)
     // {

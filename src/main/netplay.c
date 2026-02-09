@@ -142,10 +142,47 @@ typedef struct {
 // Circular buffer for inputs, should be more efficient for FIFO
 input_slot l_input_ring[4][INPUT_BUF];
 
+/* Rollback prediction tracking structure */
+typedef struct {
+    uint32_t predicted_inputs;   /* what we guessed for this VI */
+    uint32_t confirmed_inputs;   /* what actually arrived (0 if unconfirmed) */
+    uint8_t  is_predicted;       /* 1 if we used a prediction for this VI */
+    uint8_t  is_confirmed;       /* 1 once the real input arrived */
+} rollback_input_slot;
+
+static rollback_input_slot l_rollback_inputs[4][INPUT_BUF];
+static uint32_t l_last_confirmed_vi[4] = { 0, 0, 0, 0 };
+
+// Rollback execution tracking
+static int g_netplay_rollback_needed = 0;        /* 1 if misprediction detected, need to rollback */
+static uint32_t g_netplay_rollback_target_vi = 0; /* VI to rollback to (where misprediction occurred) */
+static uint32_t g_netplay_rollback_frames_back = 0; /* How many frames back to rollback */
+static uint8_t g_netplay_rollback_player = 0;    /* Which player caused the misprediction */
+
+// Rollback statistics for diagnostics
+static uint32_t g_netplay_rollback_count = 0;     /* Total number of rollbacks performed */
+static uint32_t g_netplay_rollback_frames_total = 0; /* Total frames rolled back */  /* highest VI with confirmed input per player */
+
 #define RELAY_DATA_PORT 27015 // Server port for relaying packets
 #define RELAY_CTRL_PORT 27016 // Server port for establishing connection
 
-#define NETPLAY_DEFAULT_INPUT_DELAY 6
+// Netplay input buffer delay:
+// Traditional delay-based netplay used 6 frames to ensure inputs arrive before needed.
+// With rollback netplay, we use prediction and correction instead, so only need 1 frame
+// for network jitter tolerance while maintaining low latency.
+#define NETPLAY_DEFAULT_INPUT_DELAY 1
+
+#define ROLLBACK_INPUT_HISTORY 256  /* must match INPUT_BUF */
+
+typedef struct {
+    uint32_t predicted_inputs;   /* what we guessed */
+    uint32_t confirmed_inputs;   /* what actually arrived (0 if unconfirmed) */
+    uint8_t  is_predicted;       /* 1 if we used a prediction for this VI */
+    uint8_t  is_confirmed;       /* 1 once the real input arrived */
+} rollback_input_slot;
+
+static rollback_input_slot l_rollback_inputs[4][ROLLBACK_INPUT_HISTORY];
+static uint32_t l_last_confirmed_vi[4];  /* highest VI with confirmed input per player */
 
 // Disconnect helper
 static void disconnect_and_cleanup(void);
@@ -315,8 +352,19 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
         l_player_lag[i] = 0;
         l_last_inputs[i] = 0;
         l_early_events[i] = NULL;
-        for (int j = 0; j < INPUT_BUF; ++j) l_input_ring[i][j].valid = 0;
+        for (int j = 0; j < INPUT_BUF; ++j) {
+            l_input_ring[i][j].valid = 0;
+            l_rollback_inputs[i][j].predicted_inputs = 0;
+            l_rollback_inputs[i][j].confirmed_inputs = 0;
+            l_rollback_inputs[i][j].is_predicted = 0;
+            l_rollback_inputs[i][j].is_confirmed = 0;
+        }
+        l_last_confirmed_vi[i] = 0;
     }
+
+    // Reset rollback statistics
+    g_netplay_rollback_count = 0;
+    g_netplay_rollback_frames_total = 0;
 
     l_canFF = 0;
     l_netplay_controller = 0;
@@ -370,6 +418,13 @@ m64p_error netplay_stop()
         }
         l_early_events[i] = NULL;
     }
+    
+    // Clear rollback state
+    g_netplay_rollback_needed = 0;
+    g_netplay_rollback_target_vi = 0;
+    g_netplay_rollback_frames_back = 0;
+    g_netplay_rollback_player = 0;
+    
     disconnect_and_cleanup();
 
     return M64ERR_SUCCESS;
@@ -434,6 +489,107 @@ static int check_valid(uint8_t control_id, uint32_t count)
     if (l_input_ring[control_id][idx].valid && l_input_ring[control_id][idx].count == count)
         return 1;
     return 0;
+}
+
+// Check for misprediction and trigger rollback if needed
+static void netplay_check_rollback(uint8_t player, uint32_t vi)
+{
+    // Don't check if this is a future VI (hasn't happened yet)
+    if (vi >= l_vi_counter)
+        return;
+
+    // Don't trigger another rollback if one is already pending
+    if (g_netplay_rollback_needed)
+        return;
+
+    int idx = vi % INPUT_BUF;
+    
+    // Get the confirmed input that just arrived
+    uint32_t confirmed_inputs = l_input_ring[player][idx].inputs;
+    
+    // Check if we had predicted this VI
+    if (l_rollback_inputs[player][idx].is_predicted == 1 && 
+        l_rollback_inputs[player][idx].is_confirmed == 0)
+    {
+        uint32_t predicted_inputs = l_rollback_inputs[player][idx].predicted_inputs;
+        
+        // Did the prediction match the actual input?
+        if (predicted_inputs != confirmed_inputs)
+        {
+            DebugMessage(M64MSG_WARNING, "Netplay: Misprediction detected for P%u at VI %u. Predicted 0x%X, Got 0x%X", 
+                         player+1, vi, predicted_inputs, confirmed_inputs);
+
+            // Calculate how many frames need to be rolled back
+            uint32_t frames_back = l_vi_counter - vi;
+            
+            // Check if we have enough saved states to rollback
+            if (frames_back > 0 && frames_back <= rollback_count())
+            {
+                DebugMessage(M64MSG_INFO, "Netplay: Triggering rollback %u frames (VI %u -> %u for P%u)", 
+                             frames_back, l_vi_counter, vi, player+1);
+                
+                // Set rollback globals to trigger re-simulation on next VI
+                g_netplay_rollback_needed = 1;
+                g_netplay_rollback_target_vi = vi;
+                g_netplay_rollback_frames_back = frames_back;
+                g_netplay_rollback_player = player;
+            }
+            else if (frames_back > rollback_count())
+            {
+                DebugMessage(M64MSG_ERROR, "Netplay: Misprediction too old to recover. Needed to rollback %u frames but only have %u saved", 
+                             frames_back, rollback_count());
+            }
+        }
+        else
+        {
+            // Prediction was correct, just mark as confirmed
+            l_rollback_inputs[player][idx].confirmed_inputs = confirmed_inputs;
+            l_rollback_inputs[player][idx].is_confirmed = 1;
+        }
+    }
+    else if (l_rollback_inputs[player][idx].is_confirmed == 0)
+    {
+        // No record of prediction, just store the confirmed input
+        l_rollback_inputs[player][idx].confirmed_inputs = confirmed_inputs;
+        l_rollback_inputs[player][idx].is_confirmed = 1;
+    }
+}
+
+// Perform rollback to mispredicted VI and allow natural re-simulation
+static void netplay_perform_rollback()
+{
+    if (!g_netplay_rollback_needed || g_netplay_rollback_frames_back == 0)
+        return;
+
+    DebugMessage(M64MSG_WARNING, "Netplay: Executing rollback to VI %u (loading %u frames back)", 
+                 g_netplay_rollback_target_vi, g_netplay_rollback_frames_back);
+
+    // Load savestate from rollback ring buffer
+    // This restores the entire device state to the point where the mispredicted VI begins
+    rollback_load(&g_dev, g_netplay_rollback_frames_back);
+
+    // Update prediction tracking: mark the mispredicted input as confirmed
+    int idx = g_netplay_rollback_target_vi % INPUT_BUF;
+    l_rollback_inputs[g_netplay_rollback_player][idx].is_confirmed = 1;
+    l_rollback_inputs[g_netplay_rollback_player][idx].is_predicted = 0;
+    
+    // The CPU will naturally continue executing from the restored state
+    // and fire the next VI interrupt. As frames advance, they will be resimulated
+    // with corrected inputs. Rollback states in the ring buffer are updated
+    // in new_vi() via rollback_save() during normal execution.
+
+    // Track rollback statistics
+    g_netplay_rollback_count++;
+    g_netplay_rollback_frames_total += g_netplay_rollback_frames_back;
+    
+    DebugMessage(M64MSG_INFO, "Netplay: Rollback complete. Total rollbacks: %u, Total frames: %u", 
+                 g_netplay_rollback_count, g_netplay_rollback_frames_total);
+
+    // Clear rollback flags
+    g_netplay_rollback_needed = 0;
+    g_netplay_rollback_target_vi = 0;
+    g_netplay_rollback_frames_back = 0;
+    g_netplay_rollback_player = 0;
 }
 
 static void netplay_poll(void)
@@ -565,6 +721,9 @@ static void netplay_poll(void)
                                     l_input_ring[player][idx].inputs = inputs;
                                     l_input_ring[player][idx].plugin = plugin;
                                     l_input_ring[player][idx].valid = 1;
+                                    
+                                    // Check for mispredictions
+                                    netplay_check_rollback(player, count);
                                 }
                             }
                             break;
@@ -622,6 +781,9 @@ static void netplay_poll(void)
                                 l_input_ring[player][idx].inputs = inputs;
                                 l_input_ring[player][idx].plugin = plugin;
                                 l_input_ring[player][idx].valid = 1;
+                                
+                                // Check for mispredictions
+                                netplay_check_rollback(player, count);
                             }
                             break;
                         }
@@ -674,32 +836,31 @@ static void netplay_delete_event(struct netplay_event* current, uint8_t control_
 static uint32_t netplay_get_input_for_vi(uint8_t control_id, uint32_t vi)
 {
     uint32_t inputs = 0;
+    int idx = vi % INPUT_BUF;
     
     // Process incoming packets
     netplay_poll();
 
     main_core_state_set(M64CORE_SPEED_LIMITER, 1);
     l_canFF = 0;
-    
-    uint32_t start_wait = SDL_GetTicks();
-    while (!check_valid(control_id, vi) && (SDL_GetTicks() - start_wait) < 500)
-    {
-        netplay_poll();
-        if (check_valid(control_id, vi))
-            break;
-        SDL_Delay(1);
-    }
 
-    if (check_valid(control_id, vi))
+    if (l_input_ring[control_id][idx].valid && l_input_ring[control_id][idx].count == vi)
     {
-        int idx = vi % INPUT_BUF;
+        // Confirmed input received from other player
         inputs = l_input_ring[control_id][idx].inputs;
         Controls[control_id].Plugin = l_input_ring[control_id][idx].plugin;
         l_last_inputs[control_id] = inputs;
+        l_rollback_inputs[control_id][idx].confirmed_inputs = inputs;
+        l_rollback_inputs[control_id][idx].is_confirmed = 1;
+        l_last_confirmed_vi[control_id] = vi;
     }
     else
     {
+        // No confirmed input, use prediction
         inputs = l_last_inputs[control_id];
+        l_rollback_inputs[control_id][idx].predicted_inputs = inputs;
+        l_rollback_inputs[control_id][idx].is_predicted = 1;
+        l_rollback_inputs[control_id][idx].is_confirmed = 0;
     }
     
     return inputs;
@@ -809,6 +970,16 @@ void netplay_set_controller(uint8_t player)
 int netplay_get_controller(uint8_t player)
 {
     return l_netplay_control[player];
+}
+
+int netplay_is_rollback_needed()
+{
+    return g_netplay_rollback_needed;
+}
+
+void netplay_process_rollback()
+{
+    netplay_perform_rollback();
 }
 
 file_status_t netplay_read_storage(const char *filename, void *data, size_t size)
@@ -1210,7 +1381,10 @@ static void netplay_send_raw_input(struct pif* pif)
                 l_last_send_vi[i] = vi;
 
                 uint32_t keys_now = *(uint32_t*)pif->channels[i].rx_buf;
-                uint32_t target_vi = vi + (uint32_t)l_buffer_target;
+                
+                // For rollback netplay, send inputs for current VI instead of delayed VI
+                // This reduces latency - remote inputs will be predicted and corrected via rollback
+                uint32_t target_vi = vi;
 
                 netplay_insert_local_event((uint8_t)i, target_vi, keys_now);
 
@@ -1235,14 +1409,9 @@ static void netplay_get_raw_input(struct pif* pif)
                 {
                     if (l_cached_vi[i] != vi)
                     {
-                        if (vi < (uint32_t)l_buffer_target)
-                        {
-                            l_cached_inputs[i] = 0;
-                        }
-                        else
-                        {
-                            l_cached_inputs[i] = netplay_get_input_for_vi((uint8_t)i, vi);
-                        }
+                        // With rollback netplay, always get input for current VI
+                        // Inputs will be predicted if not yet received
+                        l_cached_inputs[i] = netplay_get_input_for_vi((uint8_t)i, vi);
                         l_cached_vi[i] = vi;
                     }
                     *(uint32_t*)pif->channels[i].rx_buf = l_cached_inputs[i];
@@ -1269,6 +1438,7 @@ static void netplay_get_raw_input(struct pif* pif)
         }
     }
 }
+
 
 void netplay_update_input(struct pif* pif)
 {

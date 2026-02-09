@@ -41,6 +41,7 @@
 #include "main/main.h"
 #include "main/rom.h"
 #include "main/savestates.h"
+#include "main/rollback.h"
 #include "main/util.h"
 #include "main/version.h"
 #include "main/workqueue.h"
@@ -92,6 +93,7 @@ EXPORT m64p_error CALL CoreStartup(int APIVersion, const char *ConfigPath, const
     plugin_connect(M64PLUGIN_CORE, NULL);
 
     savestates_init();
+    rollback_init();
 
     
     /* next, start up the configuration handling code by loading and parsing the config file */
@@ -138,6 +140,7 @@ EXPORT m64p_error CALL CoreShutdown(void)
     ConfigShutdown();
     workqueue_shutdown();
     savestates_deinit();
+    rollback_deinit();
 
     /* if the calling code is using SDL, don't shut it down */
     if (!l_CallerUsingSDL)

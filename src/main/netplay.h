@@ -56,12 +56,14 @@ void netplay_check_sync(struct cp0* cp0);
 int netplay_next_controller();
 void netplay_read_registration(struct controller_input_compat* cin_compats);
 void netplay_update_input(struct pif* pif);
+int netplay_is_rollback_needed();
+void netplay_process_rollback();
 m64p_error netplay_send_config(char* data, int size);
 m64p_error netplay_receive_config(char* data, int size);
 
 #else
 
-m64p_error netplay_start(const char* relay_host, const char* token, int is_server);
+m64p_error netplay_start(const char* relay_host, const char* token, int is_server)
 {
     return M64ERR_INCOMPATIBLE;
 }
@@ -118,6 +120,15 @@ static osal_inline void netplay_read_registration(struct controller_input_compat
 }
 
 static osal_inline void netplay_update_input(struct pif* pif)
+{
+}
+
+static osal_inline int netplay_is_rollback_needed()
+{
+    return 0;
+}
+
+static osal_inline void netplay_process_rollback()
 {
 }
 

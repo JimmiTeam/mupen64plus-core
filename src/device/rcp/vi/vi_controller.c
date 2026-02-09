@@ -185,6 +185,11 @@ void vi_vertical_interrupt_event(void* opaque)
 
     // Jimmi frame logic
     uint64_t old_f = frame_manager_get_frame_index();
+
+    if (netplay_is_init())
+    {
+        rollback_save(&g_dev, old_f);
+    }
     
     int current_game_status = game_manager_get_game_status();
     int match_ongoing = current_game_status == REMIX_STATUS_ONGOING;

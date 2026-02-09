@@ -78,6 +78,7 @@
 #include "screenshot.h"
 #include "util.h"
 #include "netplay.h"
+#include "rollback.h"
 #include "jimmi/frame_manager.h"
 #include "jimmi/input_manager.h"
 #include "jimmi/replay_manager.h"
@@ -1121,6 +1122,12 @@ static void pause_loop(void)
  * Allow the core to perform various things */
 void new_vi(void)
 {
+    // Process rollback if misprediction was detected
+    if (netplay_is_rollback_needed())
+    {
+        netplay_process_rollback();
+    }
+
     int recording_enabled = replay_manager_is_enabled();
     int current_game_state = game_manager_get_game_status();
 
@@ -1187,6 +1194,12 @@ void new_vi(void)
     pause_loop();
 
     netplay_check_sync(&g_dev.r4300.cp0);
+
+    // Save rollback state for netplay at every VI
+    if (netplay_is_init())
+    {
+        rollback_save(&g_dev);
+    }
 
 }
 
@@ -2116,6 +2129,10 @@ m64p_error main_run(void)
     input_manager_init();
     replay_manager_init();
     playback_manager_init();
+    if (netplay_is_init())
+    {
+        rollback_init();
+    }
 
     /* Get initial game state for Jimmi replays */
     last_game_state = game_manager_get_game_status();
@@ -2152,6 +2169,8 @@ m64p_error main_run(void)
     for (int i = 0; i < 4; ++i) {
         g_cin_by_port[i] = NULL;
     }
+
+    rollback_deinit();
 
     igbcam_backend->close(gbcam_backend);
     igbcam_backend->release(gbcam_backend);

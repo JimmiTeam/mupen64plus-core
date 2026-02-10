@@ -1126,14 +1126,9 @@ void new_vi(void)
     if (netplay_is_rollback_needed())
     {
         netplay_process_rollback();
-        // After rollback_load, the CPU state is restored to the old frame.
-        // This function returns, and the CPU resumes from the old PC.
-        // Subsequent VI interrupts will call new_vi() again for re-simulated frames.
         return;
     }
 
-    // During re-simulation, skip most processing - just advance the VI counter
-    // and track re-simulation progress. No rendering, speed limiting, or state saving.
     if (netplay_is_resimulating())
     {
         // Still need to increment VI counter for input ring buffer indexing
@@ -1143,10 +1138,6 @@ void new_vi(void)
 
         if (!netplay_is_resimulating())
         {
-            // Re-simulation just completed on this frame.
-            // If the post-resim scan detected a new misprediction,
-            // skip the save (it would overwrite a slot we need) and
-            // process the rollback immediately.
             if (netplay_is_rollback_needed())
             {
                 netplay_process_rollback();
@@ -1227,11 +1218,6 @@ void new_vi(void)
 
     netplay_check_sync(&g_dev.r4300.cp0);
 
-    // If a misprediction was detected during the poll above, perform the
-    // rollback IMMEDIATELY rather than waiting for the next VI.  This
-    // eliminates a full wasted frame between detection and recovery and
-    // prevents the positive-feedback loop where rollback overhead causes
-    // frames_back to grow.
     if (netplay_is_rollback_needed())
     {
         netplay_process_rollback();

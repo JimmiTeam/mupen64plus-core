@@ -456,6 +456,9 @@
     <ClCompile Include="..\..\subprojects\enet\win32.c">
       <Filter>subprojects</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\main\rollback.c">
+      <Filter>main</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\api\callbacks.h">
@@ -838,6 +841,9 @@
     </ClInclude>
     <ClInclude Include="..\..\subprojects\enet\include\enet\win32.h">
       <Filter>subprojects</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\main\rollback.h">
+      <Filter>main</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

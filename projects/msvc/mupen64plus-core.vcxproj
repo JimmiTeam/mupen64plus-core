@@ -158,6 +158,7 @@
     <ClCompile Include="..\..\src\main\lirc.c" />
     <ClCompile Include="..\..\src\main\main.c" />
     <ClCompile Include="..\..\src\main\netplay.c" />
+    <ClCompile Include="..\..\src\main\rollback.c" />
     <ClCompile Include="..\..\src\main\rom.c" />
     <ClCompile Include="..\..\src\main\savestates.c" />
     <ClCompile Include="..\..\src\main\screenshot.c" />
@@ -481,6 +482,7 @@
     <ClInclude Include="..\..\src\main\list.h" />
     <ClInclude Include="..\..\src\main\main.h" />
     <ClInclude Include="..\..\src\main\netplay.h" />
+    <ClInclude Include="..\..\src\main\rollback.h" />
     <ClInclude Include="..\..\src\main\rom.h" />
     <ClInclude Include="..\..\src\main\savestates.h" />
     <ClInclude Include="..\..\src\main\screenshot.h" />

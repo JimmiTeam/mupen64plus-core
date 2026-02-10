@@ -39,7 +39,7 @@
 
 struct rollback_ringbuf g_rollback;
 
-int rollback_init(void)
+int rollback_init()
 {
     unsigned int i;
     memset(&g_rollback, 0, sizeof(g_rollback));
@@ -69,7 +69,7 @@ int rollback_init(void)
     return 0;
 }
 
-void rollback_deinit(void)
+void rollback_deinit()
 {
     unsigned int i;
     for (i = 0; i < ROLLBACK_RING_SIZE; ++i)

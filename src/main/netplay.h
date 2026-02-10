@@ -58,6 +58,8 @@ void netplay_read_registration(struct controller_input_compat* cin_compats);
 void netplay_update_input(struct pif* pif);
 int netplay_is_rollback_needed();
 void netplay_process_rollback();
+int netplay_is_resimulating();
+void netplay_resim_advance();
 m64p_error netplay_send_config(char* data, int size);
 m64p_error netplay_receive_config(char* data, int size);
 
@@ -129,6 +131,15 @@ static osal_inline int netplay_is_rollback_needed()
 }
 
 static osal_inline void netplay_process_rollback()
+{
+}
+
+static osal_inline int netplay_is_resimulating()
+{
+    return 0;
+}
+
+static osal_inline void netplay_resim_advance()
 {
 }
 

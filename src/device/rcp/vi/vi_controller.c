@@ -172,10 +172,16 @@ void write_vi_regs(void* opaque, uint32_t address, uint32_t value, uint32_t mask
 void vi_vertical_interrupt_event(void* opaque)
 {
     struct vi_controller* vi = (struct vi_controller*)opaque;
-    if (vi->dp->do_on_unfreeze & DELAY_DP_INT)
-        vi->dp->do_on_unfreeze |= DELAY_UPDATESCREEN;
-    else
-        gfx.updateScreen();
+
+    // During rollback re-simulation, skip rendering to avoid visual glitches
+    // and run as fast as possible
+    if (!netplay_is_resimulating())
+    {
+        if (vi->dp->do_on_unfreeze & DELAY_DP_INT)
+            vi->dp->do_on_unfreeze |= DELAY_UPDATESCREEN;
+        else
+            gfx.updateScreen();
+    }
 
     /* allow main module to do things on VI event */
     new_vi();
@@ -183,13 +189,13 @@ void vi_vertical_interrupt_event(void* opaque)
     /* toggle vi field if in interlaced mode */
     vi->field ^= (vi->regs[VI_STATUS_REG] >> 6) & 0x1;
 
+    // During re-simulation, skip frame management, input polling, and replay logic.
+    // Only the VI interrupt scheduling at the bottom is essential.
+    if (netplay_is_resimulating())
+        goto schedule_next_vi;
+
     // Jimmi frame logic
     uint64_t old_f = frame_manager_get_frame_index();
-
-    if (netplay_is_init())
-    {
-        rollback_save(&g_dev, old_f);
-    }
     
     int current_game_status = game_manager_get_game_status();
     int match_ongoing = current_game_status == REMIX_STATUS_ONGOING;
@@ -261,6 +267,7 @@ void vi_vertical_interrupt_event(void* opaque)
     last_game_status = current_game_status;
 
 
+schedule_next_vi:;
     /* schedule next vertical interrupt */
     uint32_t next_vi = *get_event(&vi->mi->r4300->cp0.q, VI_INT) + vi->delay;
     remove_interrupt_event(&vi->mi->r4300->cp0);

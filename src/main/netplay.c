@@ -29,6 +29,7 @@
 #include "plugin/plugin.h"
 #include "backends/plugins_compat/plugins_compat.h"
 #include "netplay.h"
+#include "rollback.h"
 #include <string.h>
 
 // Methods to streamline writing/reading ENet values to emulator
@@ -131,7 +132,7 @@ typedef enum nrly_error_code_t
 } nrly_error_code_t;
 
 // Input buffer, should experiment with the value
-#define INPUT_BUF 256
+#define INPUT_BUF 1024
 typedef struct {
   uint32_t count;
   uint32_t inputs;
@@ -159,6 +160,18 @@ static uint32_t g_netplay_rollback_target_vi = 0; /* VI to rollback to (where mi
 static uint32_t g_netplay_rollback_frames_back = 0; /* How many frames back to rollback */
 static uint8_t g_netplay_rollback_player = 0;    /* Which player caused the misprediction */
 
+// Re-simulation state
+static int l_resimulating = 0;                    /* 1 if currently in rollback re-simulation */
+static uint32_t l_resim_frames_remaining = 0;     /* frames left to re-simulate */
+
+// Rollback cooldown: after completing a rollback+resim, skip triggering
+// new rollbacks for a few frames.  Set to 0 because frame advantage
+// limiting now prevents the positive-feedback cascade.  A non-zero
+// cooldown silently drops misprediction detections during the cooldown
+// window, causing permanent state divergence (RNG desync).
+#define ROLLBACK_COOLDOWN_FRAMES 0
+static uint32_t l_rollback_cooldown = 0;          /* frames to wait before another rollback */
+
 // Rollback statistics for diagnostics
 static uint32_t g_netplay_rollback_count = 0;     /* Total number of rollbacks performed */
 static uint32_t g_netplay_rollback_frames_total = 0; /* Total frames rolled back */  /* highest VI with confirmed input per player */
@@ -167,22 +180,27 @@ static uint32_t g_netplay_rollback_frames_total = 0; /* Total frames rolled back
 #define RELAY_CTRL_PORT 6420 // Server port for establishing connection
 
 // Netplay input buffer delay:
-// Traditional delay-based netplay used 6 frames to ensure inputs arrive before needed.
-// With rollback netplay, we use prediction and correction instead, so only need 1 frame
-// for network jitter tolerance while maintaining low latency.
-#define NETPLAY_DEFAULT_INPUT_DELAY 1
+// With D-frame delay, local inputs are stored and sent for target_vi = vi + D.
+// Both sides read inputs from the ring buffer at the current vi, so both
+// local and remote players experience the same D-frame delay.
+//
+// D=1 is too tight for same-machine play: both emulators hit PIF processing
+// at nearly the same wall-clock time, so the send and receive race — the
+// remote input for frame N is sent during frame N-1 but might not arrive
+// before our PIF read for frame N.  Result: every frame predicts → every
+// frame rolls back.
+//
+// D=2 gives a full frame of margin: input for frame N is sent during
+// frame N-2, arriving well before it's needed.  The added latency
+// (~33ms at 60fps) is barely perceptible.
+#define NETPLAY_DEFAULT_INPUT_DELAY 2
 
-#define ROLLBACK_INPUT_HISTORY 256  /* must match INPUT_BUF */
+// Input redundancy: send the last N frames of input in every packet.
+// If a UDP packet is lost, the next packet carries the missing inputs.
+// Without this, a single lost packet causes permanent silent desync.
+#define INPUT_REDUNDANCY 3
 
-typedef struct {
-    uint32_t predicted_inputs;   /* what we guessed */
-    uint32_t confirmed_inputs;   /* what actually arrived (0 if unconfirmed) */
-    uint8_t  is_predicted;       /* 1 if we used a prediction for this VI */
-    uint8_t  is_confirmed;       /* 1 once the real input arrived */
-} rollback_input_slot;
-
-static rollback_input_slot l_rollback_inputs[4][ROLLBACK_INPUT_HISTORY];
-static uint32_t l_last_confirmed_vi[4];  /* highest VI with confirmed input per player */
+static uint32_t l_remote_vi = 0;  /* latest VI counter received from the other side */
 
 // Disconnect helper
 static void disconnect_and_cleanup(void);
@@ -212,7 +230,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
 
     // Bind ENet to a local port so we know what to report in HELLO
     ENetAddress local = { 0 };
-    local.host = ENET_HOST_ANY;
+    local.host = INADDR_ANY;  // Explicit 0, listen on all interfaces
     local.port = 0;
 
     l_host = enet_host_create(&local, 1, 2, 0, 0);
@@ -233,7 +251,8 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     DebugMessage(M64MSG_INFO, "Netplay: relay_host='%s' token_len=%u is_host=%d",
     relay_host, (unsigned)strlen(token), l_is_host);
 
-    DebugMessage(M64MSG_INFO, "Netplay: Local ENet port=%u. Sending relay HELLO...", (unsigned)local_port);
+    DebugMessage(M64MSG_INFO, "Netplay: Local ENet socket created. Port=%u, socket=%d, max peers=%u", 
+        (unsigned)local_port, (int)l_host->socket, (unsigned)l_host->peerCount);
 
     // CONTROL handshake on 6420 - get peer address from rendezvous server
     ENetAddress peer_addr = { 0 };
@@ -248,50 +267,216 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
 
     DebugMessage(M64MSG_INFO, "Netplay: Received peer address from rendezvous server");
 
-    // Direct peer-to-peer connection with NAT hole punching
-    // Both clients simultaneously attempt to connect to each other
+    // Direct peer-to-peer connection
+    // For same-machine scenarios, use localhost fallback
+    // First, try connecting using the relay-provided addresses
+    // If that fails, both peers will fallback to localhost
     DebugMessage(M64MSG_INFO, "Netplay: Attempting direct P2P connection to peer...");
-    
-    // Initiate connection to peer
-    ENetPeer* outgoing_peer = enet_host_connect(l_host, &peer_addr, 2, 0);
-    if (!outgoing_peer)
-    {
-        DebugMessage(M64MSG_ERROR, "Netplay: Failed to initiate connection to peer.");
-        enet_host_destroy(l_host);
-        enet_deinitialize();
-        l_host = NULL;
-        return M64ERR_SYSTEM_FAIL;
-    }
     
     ENetEvent event;
     int ok = 0;
     uint32_t start = SDL_GetTicks();
+    ENetAddress connection_addr = peer_addr;
+    int attempt = 0; // 0 = external, 1 = localhost
     
-    // Wait for connection to establish
-    while ((SDL_GetTicks() - start) < 15000)
+    DebugMessage(M64MSG_INFO, "Netplay: Initial connection_addr: %u.%u.%u.%u:%u",
+        (connection_addr.host >> 0) & 0xFF,
+        (connection_addr.host >> 8) & 0xFF,
+        (connection_addr.host >> 16) & 0xFF,
+        (connection_addr.host >> 24) & 0xFF,
+        connection_addr.port);
+    
+    // Try twice: first with external address, then with localhost
+    while (attempt < 2 && !ok)
     {
-        int r = enet_host_service(l_host, &event, 100);
-        if (r > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
+        DebugMessage(M64MSG_INFO, "Netplay: ========== ATTEMPT %d START ==========", attempt);
+        
+        if (attempt == 1)
         {
-            l_peer = event.peer;
-            ok = 1;
-            DebugMessage(M64MSG_INFO, "Netplay: P2P connection established!");
-            break;
+            // Fallback to localhost for both peers
+            DebugMessage(M64MSG_INFO, "Netplay: ATTEMPT 1: Falling back to localhost");
+            
+            if (l_is_host)
+            {
+                // Host: Rebind socket explicitly to localhost
+                DebugMessage(M64MSG_INFO, "Netplay: Host destroying original socket...");
+                uint16_t original_port = l_host->address.port;
+                if (original_port == 0)
+                {
+                    ENetAddress bound;
+                    if (enet_socket_get_address(l_host->socket, &bound) == 0)
+                        original_port = bound.port;
+                }
+                DebugMessage(M64MSG_INFO, "Netplay: Host's original port was: %u", original_port);
+                
+                enet_host_destroy(l_host);
+                l_host = NULL;
+                
+                ENetAddress localhost_bind = { 0 };
+                enet_address_set_host(&localhost_bind, "127.0.0.1");
+                localhost_bind.port = original_port;  // Reuse the same port
+                
+                DebugMessage(M64MSG_INFO, "Netplay: Host creating new socket on 127.0.0.1:%u", original_port);
+                l_host = enet_host_create(&localhost_bind, 1, 2, 0, 0);
+                if (!l_host)
+                {
+                    DebugMessage(M64MSG_ERROR, "Netplay: Failed to create localhost host socket on port %u", original_port);
+                    enet_deinitialize();
+                    return M64ERR_SYSTEM_FAIL;
+                }
+                
+                DebugMessage(M64MSG_INFO, "Netplay: Host rebound, socket=%d", (int)l_host->socket);
+                connection_addr.host = localhost_bind.host;
+                connection_addr.port = original_port;
+            }
+            else
+            {
+                // Client: Rebind socket explicitly to localhost
+                DebugMessage(M64MSG_INFO, "Netplay: Client destroying original socket...");
+                enet_host_destroy(l_host);
+                l_host = NULL;
+                
+                ENetAddress localhost_bind = { 0 };
+                enet_address_set_host(&localhost_bind, "127.0.0.1");
+                localhost_bind.port = 0;  // Let OS assign ephemeral port
+                
+                DebugMessage(M64MSG_INFO, "Netplay: Client creating fresh localhost socket...");
+                l_host = enet_host_create(&localhost_bind, 1, 2, 0, 0);
+                if (!l_host)
+                {
+                    DebugMessage(M64MSG_ERROR, "Netplay: Failed to create localhost client socket");
+                    enet_deinitialize();
+                    return M64ERR_SYSTEM_FAIL;
+                }
+                
+                uint16_t client_port = l_host->address.port;
+                if (client_port == 0)
+                {
+                    ENetAddress bound;
+                    if (enet_socket_get_address(l_host->socket, &bound) == 0)
+                        client_port = bound.port;
+                }
+                DebugMessage(M64MSG_INFO, "Netplay: Client rebound, socket=%d", (int)l_host->socket);
+                
+                // Connect to the host's advertised port
+                connection_addr.host = localhost_bind.host;
+                connection_addr.port = peer_addr.port;  // Use the port relay told us
+                DebugMessage(M64MSG_INFO, "Netplay: Client will connect to 127.0.0.1:%u", peer_addr.port);
+            }
         }
-        if (r > 0 && event.type == ENET_EVENT_TYPE_DISCONNECT)
+        
+        if (l_is_host)
         {
-            DebugMessage(M64MSG_WARNING, "Netplay: Connection attempt failed, retrying...");
+            // Host: Simply wait for connection (no socket recreation needed)
+            DebugMessage(M64MSG_INFO, "Netplay: Host mode (attempt %d) listening...", attempt);
+            
+            start = SDL_GetTicks();
+            int events_received = 0;
+            while ((SDL_GetTicks() - start) < 15000)
+            {
+                int r = enet_host_service(l_host, &event, 100);
+                if (r > 0)
+                {
+                    events_received++;
+                    DebugMessage(M64MSG_INFO, "Netplay: Host attempt %d received event type %d", attempt, event.type);
+                    if (event.type == ENET_EVENT_TYPE_CONNECT)
+                    {
+                        l_peer = event.peer;
+                        ok = 1;
+                        DebugMessage(M64MSG_INFO, "Netplay: Host accepted client connection on attempt %d!", attempt);
+                        break;
+                    }
+                    else if (event.type == ENET_EVENT_TYPE_RECEIVE)
+                    {
+                        enet_packet_destroy(event.packet);
+                    }
+                }
+            }
+            
+            if (events_received == 0)
+            {
+                DebugMessage(M64MSG_WARNING, "Netplay: Host attempt %d: received NO events", attempt);
+            }
         }
+        else
+        {
+            // Client: Initiate connection
+            DebugMessage(M64MSG_INFO, "Netplay: Client mode (attempt %d) - connecting to %u.%u.%u.%u:%u",
+                attempt,
+                (connection_addr.host >> 0) & 0xFF,
+                (connection_addr.host >> 8) & 0xFF,
+                (connection_addr.host >> 16) & 0xFF,
+                (connection_addr.host >> 24) & 0xFF,
+                connection_addr.port);
+            
+            ENetPeer* outgoing_peer = enet_host_connect(l_host, &connection_addr, 2, 0);
+            if (!outgoing_peer)
+            {
+                DebugMessage(M64MSG_ERROR, "Netplay: Failed to initiate connection (attempt %d).", attempt);
+                if (attempt == 1)
+                {
+                    // No more retries
+                    enet_host_destroy(l_host);
+                    enet_deinitialize();
+                    l_host = NULL;
+                    return M64ERR_SYSTEM_FAIL;
+                }
+            }
+            else
+            {
+                start = SDL_GetTicks();
+                int client_events = 0;
+                while ((SDL_GetTicks() - start) < 15000)
+                {
+                    int r = enet_host_service(l_host, &event, 100);
+                    if (r > 0)
+                    {
+                        client_events++;
+                        DebugMessage(M64MSG_INFO, "Netplay: Client attempt %d received event type %d", attempt, event.type);
+                        if (event.type == ENET_EVENT_TYPE_CONNECT)
+                        {
+                            l_peer = event.peer;
+                            ok = 1;
+                            DebugMessage(M64MSG_INFO, "Netplay: Client connected (attempt %d)!", attempt);
+                            break;
+                        }
+                        else if (event.type == ENET_EVENT_TYPE_RECEIVE)
+                        {
+                            enet_packet_destroy(event.packet);
+                        }
+                    }
+                }
+                
+                if (client_events == 0)
+                {
+                    DebugMessage(M64MSG_WARNING, "Netplay: Client attempt %d: received NO events", attempt);
+                }
+                
+                // Disconnect for retry
+                if (!ok && outgoing_peer && attempt ==0)
+                {
+                    enet_peer_disconnect_now(outgoing_peer, 0);
+                    // Flush events
+                    ENetEvent discard;
+                    while (enet_host_service(l_host, &discard, 0) > 0)
+                    {
+                        if (discard.type == ENET_EVENT_TYPE_RECEIVE)
+                            enet_packet_destroy(discard.packet);
+                    }
+                }
+            }
+        }
+        
+        attempt++;
+        DebugMessage(M64MSG_INFO, "Netplay: ========== ATTEMPT %d END (ok=%d) ==========", attempt - 1, ok);
     }
     
     if (!ok)
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: P2P connection timeout.");
+        DebugMessage(M64MSG_ERROR, "Netplay: P2P connection failed on all attempts.");
         disconnect_and_cleanup();
         return M64ERR_SYSTEM_FAIL;
     }
-
-    // Initialize netplay state
     for (int i = 0; i < 4; ++i)
     {
         l_netplay_control[i] = -1;
@@ -312,6 +497,8 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     // Reset rollback statistics
     g_netplay_rollback_count = 0;
     g_netplay_rollback_frames_total = 0;
+    l_rollback_cooldown = 0;
+    l_remote_vi = 0;
 
     l_canFF = 0;
     l_netplay_controller = 0;
@@ -444,8 +631,14 @@ static void netplay_check_rollback(uint8_t player, uint32_t vi)
     if (vi >= l_vi_counter)
         return;
 
-    // Don't trigger another rollback if one is already pending
-    if (g_netplay_rollback_needed)
+    // Don't trigger another rollback if one is already pending or we're re-simulating
+    if (g_netplay_rollback_needed || l_resimulating)
+        return;
+
+    // Cooldown: don't trigger another rollback too soon after the last one.
+    // This breaks the positive-feedback loop where rollback overhead causes
+    // the emulator to fall behind → more mispredictions → more rollbacks.
+    if (l_rollback_cooldown > 0)
         return;
 
     int idx = vi % INPUT_BUF;
@@ -464,6 +657,11 @@ static void netplay_check_rollback(uint8_t player, uint32_t vi)
         {
             DebugMessage(M64MSG_WARNING, "Netplay: Misprediction detected for P%u at VI %u. Predicted 0x%X, Got 0x%X", 
                          player+1, vi, predicted_inputs, confirmed_inputs);
+
+            // Mark as confirmed so this entry doesn't trigger re-detection
+            // after a rollback re-simulation
+            l_rollback_inputs[player][idx].confirmed_inputs = confirmed_inputs;
+            l_rollback_inputs[player][idx].is_confirmed = 1;
 
             // Calculate how many frames need to be rolled back
             uint32_t frames_back = l_vi_counter - vi;
@@ -507,29 +705,60 @@ static void netplay_perform_rollback()
     if (!g_netplay_rollback_needed || g_netplay_rollback_frames_back == 0)
         return;
 
-    DebugMessage(M64MSG_WARNING, "Netplay: Executing rollback to VI %u (loading %u frames back)", 
-                 g_netplay_rollback_target_vi, g_netplay_rollback_frames_back);
+    DebugMessage(M64MSG_INFO, "Netplay: Rolling back %u frames (VI %u -> %u, P%u misprediction)",
+                 g_netplay_rollback_frames_back, l_vi_counter,
+                 g_netplay_rollback_target_vi, g_netplay_rollback_player + 1);
 
-    // Load savestate from rollback ring buffer
+    // Load the saved state from N frames back
     if (!rollback_load(&g_dev, g_netplay_rollback_frames_back))
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: Failed to load state for rollback.");
+        DebugMessage(M64MSG_ERROR, "Netplay: rollback_load failed for %u frames back",
+                     g_netplay_rollback_frames_back);
+        g_netplay_rollback_needed = 0;
+        g_netplay_rollback_target_vi = 0;
+        g_netplay_rollback_frames_back = 0;
+        g_netplay_rollback_player = 0;
         return;
     }
 
-    // Update prediction tracking
-    int idx = g_netplay_rollback_target_vi % INPUT_BUF;
-    l_rollback_inputs[g_netplay_rollback_player][idx].is_confirmed = 1;
-    l_rollback_inputs[g_netplay_rollback_player][idx].is_predicted = 0;
+    // Enter re-simulation mode
+    // The CPU will now resume from the old program counter.
+    // On each subsequent VI, new_vi() will see l_resimulating and skip
+    // rendering, speed limiting, and state saving until we catch up.
+    l_resimulating = 1;
+    l_resim_frames_remaining = g_netplay_rollback_frames_back;
+
+    // Save original VI counter before resetting (needed for clearing predictions)
+    uint32_t original_vi = l_vi_counter;
+
+    // Reset VI counter back to the rollback target
+    l_vi_counter = g_netplay_rollback_target_vi;
+
+    // Clear the input caches so they get re-fetched with confirmed inputs
+    for (int i = 0; i < 4; ++i)
+    {
+        l_cached_vi[i] = 0xffffffffu;
+        l_cached_inputs[i] = 0;
+    }
+
+    // Clear stale prediction tracking for all re-simulated VIs.
+    // Without this, old predictions from the original playthrough would
+    // trigger cascading rollbacks as each VI's confirmed input arrives.
+    for (uint32_t f = g_netplay_rollback_target_vi; f <= original_vi; f++)
+    {
+        int fidx = f % INPUT_BUF;
+        for (int p = 0; p < 4; p++)
+        {
+            l_rollback_inputs[p][fidx].is_predicted = 0;
+            l_rollback_inputs[p][fidx].is_confirmed = 0;
+        }
+    }
 
     // Track rollback statistics
     g_netplay_rollback_count++;
     g_netplay_rollback_frames_total += g_netplay_rollback_frames_back;
-    
-    DebugMessage(M64MSG_INFO, "Netplay: Rollback complete. Total rollbacks: %u, Total frames: %u", 
-                 g_netplay_rollback_count, g_netplay_rollback_frames_total);
 
-    // Clear rollback flags
+    // Clear rollback trigger flags (resim is now in progress)
     g_netplay_rollback_needed = 0;
     g_netplay_rollback_target_vi = 0;
     g_netplay_rollback_frames_back = 0;
@@ -566,28 +795,8 @@ static void netplay_poll(void)
                     switch (data[0])
                     {
                         case PACKET_SYNC_DATA:
-                            if (len < l_check_sync_packet_size) break;
-
-                            uint32_t sync_vi = Net_Read32(&data[1]);
-                            
-                            if (sync_vi == l_sync_vi)
-                            {
-                                int error = 0;
-                                for (int i = 0; i < CP0_REGS_COUNT; ++i)
-                                {
-                                    uint32_t val = Net_Read32(&data[(i * 4) + 5]);
-                                    if (val != l_sync_regs[i])
-                                    {
-                                        DebugMessage(M64MSG_ERROR, "Netplay: Sync Error at VI %u. Reg %d: Local %X Remote %X", (unsigned)sync_vi, i, l_sync_regs[i], val);
-                                        error = 1;
-                                    }
-                                }
-
-                                if (error)
-                                {
-                                    DebugMessage(M64MSG_ERROR, "Netplay: Synchronization failure detected.");
-                                }
-                            }
+                            // Legacy sync check removed — just discard the packet.
+                            // See comment in netplay_check_sync for rationale.
                             break;
                         case PACKET_REGISTER_PLAYER: // Server side handler
                             if (l_is_host)
@@ -636,54 +845,68 @@ static void netplay_poll(void)
                         case PACKET_SEND_KEY_INFO: // Host side handler
                             if (l_is_host)
                             {
-                                if (len < 11)
+                                // New format: [type 1] [player 1] [count_events 1] [sender_vi 4] [events...]
+                                if (len < 7)
                                     break;
-                                // Client sent input.
                                 uint8_t player = data[1];
-                                uint32_t count = Net_Read32(&data[2]);
-                                uint32_t inputs = Net_Read32(&data[6]);
-                                uint8_t plugin = data[10];
+                                uint8_t count_events = data[2];
+                                uint32_t sender_vi = Net_Read32(&data[3]);
 
                                 if (player > 3)
                                     break;
 
-                                if (l_cin_compats == NULL) 
+                                if (l_cin_compats == NULL)
                                     break;
 
-                                // Store all inputs locally
-                                struct controller_input_compat* pComp = &l_cin_compats[player];
-                                // Drop inputs if they go too long without being consumed
-                                if (count + 240u < l_vi_counter)
+                                // Track remote frame for frame-advantage limiting
+                                if (sender_vi > l_remote_vi)
+                                    l_remote_vi = sender_vi;
+
+                                size_t curr = 7;
+                                for (int i = 0; i < count_events; ++i)
                                 {
-                                    DebugMessage(M64MSG_WARNING, "Netplay: Dropping P%u input for count %u (too old, VI %u)", player+1, count, l_vi_counter);
-                                    break;
-                                }
-                                if (!check_valid(player, count))
-                                {
-                                    int idx = count % INPUT_BUF;
-                                    l_input_ring[player][idx].count = count;
-                                    l_input_ring[player][idx].inputs = inputs;
-                                    l_input_ring[player][idx].plugin = plugin;
-                                    l_input_ring[player][idx].valid = 1;
-                                    
-                                    // Check for mispredictions
-                                    netplay_check_rollback(player, count);
+                                    if (curr + 9 > len) break;
+
+                                    uint32_t count = Net_Read32(&data[curr]); curr += 4;
+                                    uint32_t inputs = Net_Read32(&data[curr]); curr += 4;
+                                    uint8_t plugin = data[curr]; curr += 1;
+
+                                    // Drop inputs too old to matter
+                                    if (count + 240u < l_vi_counter)
+                                        continue;
+
+                                    if (!check_valid(player, count))
+                                    {
+                                        int idx = count % INPUT_BUF;
+                                        l_input_ring[player][idx].count = count;
+                                        l_input_ring[player][idx].inputs = inputs;
+                                        l_input_ring[player][idx].plugin = plugin;
+                                        l_input_ring[player][idx].valid = 1;
+
+                                        // Check for mispredictions
+                                        netplay_check_rollback(player, count);
+                                    }
                                 }
                             }
                             break;
                             
                         case PACKET_RECEIVE_KEY_INFO: // Client side handler
                         {
-                            if (len < 6) break;
+                            // New format: [type 1] [player 1] [status 1] [lag 1] [count_events 1]
+                            //             [sender_vi 4] [events...]
+                            if (len < 9) break;
                             uint8_t player = data[1];
-                            uint32_t count_dbg = Net_Read32(&data[5]);
-                            
                             uint8_t current_status = data[2];
                             uint8_t lag = data[3];
                             uint8_t count_events = data[4];
+                            uint32_t sender_vi = Net_Read32(&data[5]);
 
                             if (player > 3) break;
-                            
+
+                            // Track remote frame for frame-advantage limiting
+                            if (sender_vi > l_remote_vi)
+                                l_remote_vi = sender_vi;
+
                             l_player_lag[player] = lag;
                             
                             if (l_cin_compats != NULL && current_status != l_status)
@@ -708,7 +931,7 @@ static void netplay_poll(void)
                                 l_status = current_status;
                             }
                             
-                            size_t curr = 5;
+                            size_t curr = 9;
                             for (int i = 0; i < count_events; ++i)
                             {
                                 if (curr + 9 > len) break;
@@ -719,15 +942,18 @@ static void netplay_poll(void)
                                 curr += 4;
                                 uint8_t plugin = data[curr];
                                 curr += 1;
-                                
-                                int idx = count % INPUT_BUF;
-                                l_input_ring[player][idx].count = count;
-                                l_input_ring[player][idx].inputs = inputs;
-                                l_input_ring[player][idx].plugin = plugin;
-                                l_input_ring[player][idx].valid = 1;
-                                
-                                // Check for mispredictions
-                                netplay_check_rollback(player, count);
+
+                                if (!check_valid(player, count))
+                                {
+                                    int idx = count % INPUT_BUF;
+                                    l_input_ring[player][idx].count = count;
+                                    l_input_ring[player][idx].inputs = inputs;
+                                    l_input_ring[player][idx].plugin = plugin;
+                                    l_input_ring[player][idx].valid = 1;
+                                    
+                                    // Check for mispredictions
+                                    netplay_check_rollback(player, count);
+                                }
                             }
                             break;
                         }
@@ -782,11 +1008,12 @@ static uint32_t netplay_get_input_for_vi(uint8_t control_id, uint32_t vi)
     uint32_t inputs = 0;
     int idx = vi % INPUT_BUF;
     
-    // Process incoming packets
+    // Poll at PIF-read time as well as at check_sync time.
+    // Packets that arrived between netplay_check_sync (early in new_vi)
+    // and PIF processing (later, during CPU execution) would otherwise be
+    // missed until the NEXT frame's check_sync — turning a perfectly
+    // on-time input into a false misprediction.
     netplay_poll();
-
-    main_core_state_set(M64CORE_SPEED_LIMITER, 1);
-    l_canFF = 0;
 
     if (l_input_ring[control_id][idx].valid && l_input_ring[control_id][idx].count == vi)
     {
@@ -820,35 +1047,89 @@ static void netplay_insert_local_event(uint8_t control_id, uint32_t vi, uint32_t
     l_input_ring[control_id][idx].valid = 1;
 }
 
-// Send local input to peer
+// Send local input to peer with redundancy.
+// Each packet carries the current input PLUS the last (INPUT_REDUNDANCY-1)
+// inputs from the ring buffer.  If a UDP packet is dropped, the next
+// packet carries the missing inputs so the receiver can recover without
+// waiting for a retransmit that will never come.
 static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32_t keys)
 {
+    // Build array of inputs to send (current + recent history)
+    uint32_t send_vis[INPUT_REDUNDANCY];
+    uint32_t send_keys[INPUT_REDUNDANCY];
+    uint8_t  send_plugins[INPUT_REDUNDANCY];
+    int count = 0;
+
+    // Always include the current input
+    send_vis[count]     = vi;
+    send_keys[count]    = keys;
+    send_plugins[count] = l_plugin[control_id];
+    count++;
+
+    // Include recent history from ring buffer for redundancy
+    for (int h = 1; h < INPUT_REDUNDANCY && vi >= (uint32_t)h; h++)
+    {
+        uint32_t hvi = vi - h;
+        int idx = hvi % INPUT_BUF;
+        if (l_input_ring[control_id][idx].valid &&
+            l_input_ring[control_id][idx].count == hvi)
+        {
+            send_vis[count]     = hvi;
+            send_keys[count]    = l_input_ring[control_id][idx].inputs;
+            send_plugins[count] = l_input_ring[control_id][idx].plugin;
+            count++;
+        }
+    }
+
     if (l_is_host)
     {
-        uint8_t pkt[14];
+        // Host → Client format:
+        // [type 1] [player 1] [status 1] [lag 1] [count_events 1]
+        // [sender_vi 4] [vi 4] [inputs 4] [plugin 1] ...
+        size_t pkt_len = 9 + (size_t)count * 9;
+        uint8_t pkt[9 + INPUT_REDUNDANCY * 9];
         pkt[0] = PACKET_RECEIVE_KEY_INFO;
         pkt[1] = control_id;
         pkt[2] = l_status;
         pkt[3] = 0;
-        pkt[4] = 1;
-        Net_Write32(vi, &pkt[5]);
-        Net_Write32(keys, &pkt[9]);
-        pkt[13] = l_plugin[control_id];
+        pkt[4] = (uint8_t)count;
+        Net_Write32(l_vi_counter, &pkt[5]);  // sender's current VI
 
-        ENetPacket* p = enet_packet_create(pkt, 14, 0);
-        enet_peer_send(l_peer, 0, p);
+        size_t off = 9;
+        for (int i = 0; i < count; i++)
+        {
+            Net_Write32(send_vis[i],  &pkt[off]); off += 4;
+            Net_Write32(send_keys[i], &pkt[off]); off += 4;
+            pkt[off++] = send_plugins[i];
+        }
+
+        ENetPacket* p = enet_packet_create(pkt, pkt_len, 0);
+        enet_peer_send(l_peer, 1, p);
+        enet_host_flush(l_host);
     }
     else
     {
-        uint8_t pkt[11];
+        // Client → Host format:
+        // [type 1] [player 1] [count_events 1] [sender_vi 4]
+        // [vi 4] [inputs 4] [plugin 1] ...
+        size_t pkt_len = 7 + (size_t)count * 9;
+        uint8_t pkt[7 + INPUT_REDUNDANCY * 9];
         pkt[0] = PACKET_SEND_KEY_INFO;
         pkt[1] = control_id;
-        Net_Write32(vi, &pkt[2]);
-        Net_Write32(keys, &pkt[6]);
-        pkt[10] = l_plugin[control_id];
+        pkt[2] = (uint8_t)count;
+        Net_Write32(l_vi_counter, &pkt[3]);  // sender's current VI
 
-        ENetPacket* p = enet_packet_create(pkt, 11, 0);
+        size_t off = 7;
+        for (int i = 0; i < count; i++)
+        {
+            Net_Write32(send_vis[i],  &pkt[off]); off += 4;
+            Net_Write32(send_keys[i], &pkt[off]); off += 4;
+            pkt[off++] = send_plugins[i];
+        }
+
+        ENetPacket* p = enet_packet_create(pkt, pkt_len, 0);
         enet_peer_send(l_peer, 1, p);
+        enet_host_flush(l_host);
     }
 }
 
@@ -924,6 +1205,96 @@ int netplay_is_rollback_needed()
 void netplay_process_rollback()
 {
     netplay_perform_rollback();
+}
+
+int netplay_is_resimulating()
+{
+    return l_resimulating;
+}
+
+// After resim ends, check whether any predictions made during the resim
+// period have since been contradicted by confirmed inputs that arrived
+// while we were re-simulating.  During resim, netplay_check_rollback()
+// is suppressed (l_resimulating guard), so confirmed inputs that arrive
+// late are stored in the ring buffer but never compared against the
+// prediction.  This function closes that gap.
+static void netplay_post_resim_scan(void)
+{
+    // One last poll to pick up any packets that arrived during resim
+    netplay_poll();
+
+    for (int p = 0; p < 4; p++)
+    {
+        if (l_netplay_control[p] != -1)
+            continue; // Only check remote controllers
+
+        // Scan recent VIs within rollback range
+        uint32_t scan_start = (l_vi_counter > (uint32_t)ROLLBACK_RING_SIZE)
+                              ? l_vi_counter - ROLLBACK_RING_SIZE
+                              : 0;
+
+        for (uint32_t vi = scan_start; vi < l_vi_counter; vi++)
+        {
+            int idx = vi % INPUT_BUF;
+
+            if (l_rollback_inputs[p][idx].is_predicted == 1 &&
+                l_rollback_inputs[p][idx].is_confirmed == 0)
+            {
+                // Check if the ring buffer now has confirmed input
+                if (l_input_ring[p][idx].valid &&
+                    l_input_ring[p][idx].count == vi)
+                {
+                    uint32_t confirmed = l_input_ring[p][idx].inputs;
+                    uint32_t predicted = l_rollback_inputs[p][idx].predicted_inputs;
+
+                    // Mark as confirmed regardless of match
+                    l_rollback_inputs[p][idx].confirmed_inputs = confirmed;
+                    l_rollback_inputs[p][idx].is_confirmed = 1;
+
+                    if (confirmed != predicted)
+                    {
+                        uint32_t frames_back = l_vi_counter - vi;
+                        if (frames_back > 0 && frames_back <= (uint32_t)rollback_count())
+                        {
+                            DebugMessage(M64MSG_WARNING,
+                                "Netplay: Post-resim misprediction P%u at VI %u "
+                                "(predicted 0x%X, confirmed 0x%X, %u frames back)",
+                                p + 1, vi, predicted, confirmed, frames_back);
+
+                            g_netplay_rollback_needed = 1;
+                            g_netplay_rollback_target_vi = vi;
+                            g_netplay_rollback_frames_back = frames_back;
+                            g_netplay_rollback_player = (uint8_t)p;
+                            return; // Handle oldest misprediction first
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void netplay_resim_advance()
+{
+    if (!l_resimulating)
+        return;
+
+    if (l_resim_frames_remaining > 0)
+        l_resim_frames_remaining--;
+
+    if (l_resim_frames_remaining == 0)
+    {
+        DebugMessage(M64MSG_INFO, "Netplay: Re-simulation complete. Rollbacks so far: %u (total frames: %u)",
+                     g_netplay_rollback_count, g_netplay_rollback_frames_total);
+        l_resimulating = 0;
+
+        // Check for mispredictions that arrived during resim but were
+        // suppressed by the l_resimulating guard in check_rollback.
+        netplay_post_resim_scan();
+
+        // Start cooldown so we don't immediately cascade into another rollback
+        l_rollback_cooldown = ROLLBACK_COOLDOWN_FRAMES;
+    }
 }
 
 file_status_t netplay_read_storage(const char *filename, void *data, size_t size)
@@ -1126,31 +1497,49 @@ void netplay_check_sync(struct cp0* cp0)
     if (!netplay_is_init())
         return;
 
-    // Check sync every 600 frames
-    if (l_vi_counter % 600 == 0)
+    // During re-simulation, just increment the counter and poll - don't send sync packets
+    if (l_resimulating)
     {
-        const uint32_t* cp0_regs = r4300_cp0_regs(cp0);
-
-        l_sync_vi = l_vi_counter;
-        for (int i = 0; i < CP0_REGS_COUNT; ++i)
-        {
-            l_sync_regs[i] = cp0_regs[i];
-        }
-
-        uint8_t data[ (CP0_REGS_COUNT * 4) + 5 ];
-
-        data[0] = PACKET_SYNC_DATA;
-        Net_Write32(l_vi_counter, &data[1]); //current VI count
-        for (int i = 0; i < CP0_REGS_COUNT; ++i)
-        {
-            Net_Write32(cp0_regs[i], &data[(i * 4) + 5]);
-        }
-        
-        ENetPacket* packet = enet_packet_create(data, (CP0_REGS_COUNT * 4) + 5, ENET_PACKET_FLAG_RELIABLE);
-        enet_peer_send(l_peer, 0, packet);
+        ++l_vi_counter;
+        netplay_poll();
+        return;
     }
 
+    // Tick down rollback cooldown every normal (non-resim) frame
+    if (l_rollback_cooldown > 0)
+        --l_rollback_cooldown;
+
     ++l_vi_counter;
+
+    // Poll AFTER incrementing l_vi_counter so that incoming inputs for the
+    // previous frame(s) pass the "vi >= l_vi_counter" guard in check_rollback
+    // and mispredictions are actually detected and corrected.
+    netplay_poll();
+
+    // Frame advantage limiting: now that l_vi_counter has been incremented
+    // and we've polled, check whether we're too far ahead of the remote.
+    //
+    // With D-frame input delay, the remote has sent inputs up to
+    // target_vi = remote_vi + D.  If l_vi_counter > remote_vi + D,
+    // the remote hasn't produced the input we need yet and we'd be
+    // forced to predict.  Stall until the gap closes.
+    if (l_remote_vi > 0)
+    {
+        uint32_t stall_start = SDL_GetTicks();
+        while ((int)(l_vi_counter - l_remote_vi) > (int)l_buffer_target)
+        {
+            netplay_poll();
+            SDL_Delay(0); // yield timeslice without 15ms Sleep penalty
+            // Safety: don't stall forever if remote stops sending
+            if (SDL_GetTicks() - stall_start > 500)
+            {
+                DebugMessage(M64MSG_WARNING,
+                    "Netplay: Frame advantage stall timeout (local VI %u, remote VI %u, D %u)",
+                    l_vi_counter, l_remote_vi, (unsigned)l_buffer_target);
+                break;
+            }
+        }
+    }
 }
 
 static void netplay_flush_early_buffer(void)
@@ -1313,6 +1702,11 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
 
 static void netplay_send_raw_input(struct pif* pif)
 {
+    // During re-simulation, don't read hardware or send packets.
+    // The ring buffer already has the correct inputs from the original playthrough.
+    if (l_resimulating)
+        return;
+
     uint32_t vi = l_vi_counter;
     for (int i = 0; i < 4; ++i)
     {
@@ -1326,12 +1720,13 @@ static void netplay_send_raw_input(struct pif* pif)
 
                 uint32_t keys_now = *(uint32_t*)pif->channels[i].rx_buf;
                 
-                // For rollback netplay, send inputs for current VI instead of delayed VI
-                // This reduces latency - remote inputs will be predicted and corrected via rollback
-                uint32_t target_vi = vi;
-
+                // Apply symmetric input delay: store and send input for a FUTURE
+                // frame (vi + l_buffer_target). Both sides read inputs from the
+                // ring buffer, so both local and remote players experience the
+                // same D-frame delay. With D >= 1, packets arrive before they
+                // are needed, eliminating predictions and rollbacks on LAN.
+                uint32_t target_vi = vi + l_buffer_target;
                 netplay_insert_local_event((uint8_t)i, target_vi, keys_now);
-
                 netplay_send_scheduled_input((uint8_t)i, target_vi, keys_now);
             }
         }
@@ -1341,6 +1736,17 @@ static void netplay_send_raw_input(struct pif* pif)
 static void netplay_get_raw_input(struct pif* pif)
 {
     uint32_t vi = l_vi_counter;
+
+    // Poll once at PIF-read time so we catch packets that arrived AFTER the
+    // check_sync poll (early in new_vi) but BEFORE this PIF read (during
+    // CPU execution).  Without this, same-machine sessions still see
+    // false mispredictions because the two emulators run their check_sync
+    // and PIF reads nearly simultaneously.
+    // Also poll during resim: confirmed inputs that arrive between
+    // check_sync and PIF read would otherwise be missed, widening the
+    // window for mispredictions during re-simulation.
+    netplay_poll();
+
     for (int i = 0; i < 4; ++i)
     {
         if (Controls[i].Present == 1)
@@ -1351,14 +1757,91 @@ static void netplay_get_raw_input(struct pif* pif)
 
                 if(pif->channels[i].tx_buf[0] == JCMD_CONTROLLER_READ)
                 {
-                    if (l_cached_vi[i] != vi)
+                    if (l_resimulating)
                     {
-                        // With rollback netplay, always get input for current VI
-                        // Inputs will be predicted if not yet received
-                        l_cached_inputs[i] = netplay_get_input_for_vi((uint8_t)i, vi);
-                        l_cached_vi[i] = vi;
+                        // During re-simulation, ALL controllers (local + remote)
+                        // get inputs from the ring buffer.  For remote controllers
+                        // that haven't been confirmed yet, we fall back to
+                        // l_last_inputs (prediction) and MUST track the prediction
+                        // so that netplay_check_rollback can detect and correct
+                        // mispredictions once the real input arrives.
+                        if (l_cached_vi[i] != vi)
+                        {
+                            int idx = vi % INPUT_BUF;
+                            if (l_input_ring[i][idx].valid && l_input_ring[i][idx].count == vi)
+                            {
+                                l_cached_inputs[i] = l_input_ring[i][idx].inputs;
+                                l_last_inputs[i] = l_cached_inputs[i];
+
+                                // Track confirmed input for remote controllers
+                                if (l_netplay_control[i] == -1)
+                                {
+                                    l_rollback_inputs[i][idx].confirmed_inputs = l_cached_inputs[i];
+                                    l_rollback_inputs[i][idx].is_confirmed = 1;
+                                    l_rollback_inputs[i][idx].is_predicted = 0;
+                                }
+                            }
+                            else
+                            {
+                                l_cached_inputs[i] = l_last_inputs[i]; // fallback to last known
+
+                                // Track prediction for remote controllers so
+                                // mispredictions are detected after resim ends
+                                if (l_netplay_control[i] == -1)
+                                {
+                                    l_rollback_inputs[i][idx].predicted_inputs = l_cached_inputs[i];
+                                    l_rollback_inputs[i][idx].is_predicted = 1;
+                                    l_rollback_inputs[i][idx].is_confirmed = 0;
+                                }
+                            }
+                            l_cached_vi[i] = vi;
+                        }
+                        *(uint32_t*)pif->channels[i].rx_buf = l_cached_inputs[i];
                     }
-                    *(uint32_t*)pif->channels[i].rx_buf = l_cached_inputs[i];
+                    else
+                    {
+                        // Normal operation:
+                        // ALL controllers (local and remote) get input from the
+                        // ring buffer. Local input was stored D frames ago by
+                        // netplay_send_raw_input with target_vi = read_vi + D,
+                        // so reading ring[vi] now applies the correct delay.
+                        // Remote input was received with the same target_vi
+                        // tagging, ensuring both sides apply identical inputs
+                        // at identical frames.
+                        if (l_netplay_control[i] != -1)
+                        {
+                            // Local controller: read from ring buffer (delayed)
+                            if (l_cached_vi[i] != vi)
+                            {
+                                int idx = vi % INPUT_BUF;
+                                if (l_input_ring[i][idx].valid && l_input_ring[i][idx].count == vi)
+                                {
+                                    l_cached_inputs[i] = l_input_ring[i][idx].inputs;
+                                    l_last_inputs[i] = l_cached_inputs[i];
+                                }
+                                else
+                                {
+                                    // Input for this frame hasn't been stored yet
+                                    // (first D frames of the game). Use last known
+                                    // input rather than neutral to avoid jarring
+                                    // input drops.
+                                    l_cached_inputs[i] = l_last_inputs[i];
+                                }
+                                l_cached_vi[i] = vi;
+                            }
+                            *(uint32_t*)pif->channels[i].rx_buf = l_cached_inputs[i];
+                        }
+                        else
+                        {
+                            // Remote controller: use prediction/confirmed path
+                            if (l_cached_vi[i] != vi)
+                            {
+                                l_cached_inputs[i] = netplay_get_input_for_vi((uint8_t)i, vi);
+                                l_cached_vi[i] = vi;
+                            }
+                            *(uint32_t*)pif->channels[i].rx_buf = l_cached_inputs[i];
+                        }
+                    }
                 }
                 else if ((pif->channels[i].tx_buf[0] == JCMD_STATUS || pif->channels[i].tx_buf[0] == JCMD_RESET) && Controls[i].RawData)
                 {
@@ -1535,14 +2018,20 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
                     // READY packet format: 'NRLY' [ver] [type=0x02] [peer_ip u32be] [peer_port u16be]
                     if (r >= 12)
                     {
-                        out_peer_addr->host = Net_Read32(&rx[6]);
+                        // ENetAddress.host must be in network byte order.
+                        // The relay already sends the IP in network byte order
+                        // (big-endian), so copy it directly — do NOT use
+                        // Net_Read32 which would swap it to host order.
+                        memcpy(&out_peer_addr->host, &rx[6], 4);
+                        // ENetAddress.port must be in host byte order.
+                        // Net_Read16 correctly converts from network→host.
                         out_peer_addr->port = Net_Read16(&rx[10]);
-                        // DebugMessage(M64MSG_INFO, "Netplay: relay CTRL READY received. Peer address: %u.%u.%u.%u:%u",
-                        //     (out_peer_addr->host >> 0) & 0xFF,
-                        //     (out_peer_addr->host >> 8) & 0xFF,
-                        //     (out_peer_addr->host >> 16) & 0xFF,
-                        //     (out_peer_addr->host >> 24) & 0xFF,
-                        //     out_peer_addr->port);
+                        DebugMessage(M64MSG_INFO, "Netplay: relay CTRL READY received. Peer address: %u.%u.%u.%u:%u",
+                            (out_peer_addr->host >> 0) & 0xFF,
+                            (out_peer_addr->host >> 8) & 0xFF,
+                            (out_peer_addr->host >> 16) & 0xFF,
+                            (out_peer_addr->host >> 24) & 0xFF,
+                            out_peer_addr->port);
                         free(pkt);
                         enet_socket_destroy(sock);
                         return 1;

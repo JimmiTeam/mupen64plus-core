@@ -143,64 +143,42 @@ typedef struct {
 // Circular buffer for inputs, should be more efficient for FIFO
 input_slot l_input_ring[4][INPUT_BUF];
 
-/* Rollback prediction tracking structure */
 typedef struct {
-    uint32_t predicted_inputs;   /* what we guessed for this VI */
-    uint32_t confirmed_inputs;   /* what actually arrived (0 if unconfirmed) */
-    uint8_t  is_predicted;       /* 1 if we used a prediction for this VI */
-    uint8_t  is_confirmed;       /* 1 once the real input arrived */
+    uint32_t predicted_inputs;
+    uint32_t confirmed_inputs;
+    uint8_t  is_predicted;
+    uint8_t  is_confirmed;
 } rollback_input_slot;
 
 static rollback_input_slot l_rollback_inputs[4][INPUT_BUF];
 static uint32_t l_last_confirmed_vi[4] = { 0, 0, 0, 0 };
 
 // Rollback execution tracking
-static int g_netplay_rollback_needed = 0;        /* 1 if misprediction detected, need to rollback */
-static uint32_t g_netplay_rollback_target_vi = 0; /* VI to rollback to (where misprediction occurred) */
-static uint32_t g_netplay_rollback_frames_back = 0; /* How many frames back to rollback */
-static uint8_t g_netplay_rollback_player = 0;    /* Which player caused the misprediction */
+static int g_netplay_rollback_needed = 0;
+static uint32_t g_netplay_rollback_target_vi = 0;
+static uint32_t g_netplay_rollback_frames_back = 0;
+static uint8_t g_netplay_rollback_player = 0;
 
 // Re-simulation state
-static int l_resimulating = 0;                    /* 1 if currently in rollback re-simulation */
-static uint32_t l_resim_frames_remaining = 0;     /* frames left to re-simulate */
+static int l_resimulating = 0;
+static uint32_t l_resim_frames_remaining = 0;
 
-// Rollback cooldown: after completing a rollback+resim, skip triggering
-// new rollbacks for a few frames.  Set to 0 because frame advantage
-// limiting now prevents the positive-feedback cascade.  A non-zero
-// cooldown silently drops misprediction detections during the cooldown
-// window, causing permanent state divergence (RNG desync).
+// Obsolete
 #define ROLLBACK_COOLDOWN_FRAMES 0
-static uint32_t l_rollback_cooldown = 0;          /* frames to wait before another rollback */
+static uint32_t l_rollback_cooldown = 0;
 
 // Rollback statistics for diagnostics
-static uint32_t g_netplay_rollback_count = 0;     /* Total number of rollbacks performed */
-static uint32_t g_netplay_rollback_frames_total = 0; /* Total frames rolled back */  /* highest VI with confirmed input per player */
+static uint32_t g_netplay_rollback_count = 0;
+static uint32_t g_netplay_rollback_frames_total = 0;
 
-#define RELAY_DATA_PORT 27015 // Server port for relaying packets
+#define RELAY_DATA_PORT 27015 // Server port for relaying packets (obsolete)
 #define RELAY_CTRL_PORT 6420 // Server port for establishing connection
 
-// Netplay input buffer delay:
-// With D-frame delay, local inputs are stored and sent for target_vi = vi + D.
-// Both sides read inputs from the ring buffer at the current vi, so both
-// local and remote players experience the same D-frame delay.
-//
-// D=1 is too tight for same-machine play: both emulators hit PIF processing
-// at nearly the same wall-clock time, so the send and receive race — the
-// remote input for frame N is sent during frame N-1 but might not arrive
-// before our PIF read for frame N.  Result: every frame predicts → every
-// frame rolls back.
-//
-// D=2 gives a full frame of margin: input for frame N is sent during
-// frame N-2, arriving well before it's needed.  The added latency
-// (~33ms at 60fps) is barely perceptible.
 #define NETPLAY_DEFAULT_INPUT_DELAY 2
 
-// Input redundancy: send the last N frames of input in every packet.
-// If a UDP packet is lost, the next packet carries the missing inputs.
-// Without this, a single lost packet causes permanent silent desync.
-#define INPUT_REDUNDANCY 3
+#define INPUT_REDUNDANCY 3 // Number of frames to send with each packet
 
-static uint32_t l_remote_vi = 0;  /* latest VI counter received from the other side */
+static uint32_t l_remote_vi = 0;  // Latest VI counter received from the other side
 
 // Disconnect helper
 static void disconnect_and_cleanup(void);
@@ -213,7 +191,7 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
 
 m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
 {
-    // Host address and token must be given in command parameter. Emulator should never get to this point but who knows
+    // Host address and token must be given in command parameters. Emulator should never get to this point but who knows
     if (!relay_host || relay_host[0] == '\0' || !token || token[0] == '\0')
     {
         DebugMessage(M64MSG_ERROR, "Netplay: Missing relay host or token!");
@@ -254,7 +232,7 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     DebugMessage(M64MSG_INFO, "Netplay: Local ENet socket created. Port=%u, socket=%d, max peers=%u", 
         (unsigned)local_port, (int)l_host->socket, (unsigned)l_host->peerCount);
 
-    // CONTROL handshake on 6420 - get peer address from rendezvous server
+    // CONTROL handshake on 6420, get peer address from rendezvous server
     ENetAddress peer_addr = { 0 };
     if (!relay_ctrl_handshake(relay_host, RELAY_CTRL_PORT, token, local_port, &peer_addr))
     {
@@ -1007,26 +985,26 @@ static uint32_t netplay_get_input_for_vi(uint8_t control_id, uint32_t vi)
 }
 
 // Store local input into ring buffer
-static void netplay_insert_local_event(uint8_t control_id, uint32_t vi, uint32_t keys)
+static void netplay_insert_local_event(uint8_t control_id, uint32_t vi, uint32_t inputs)
 {
     int idx = vi % INPUT_BUF;
     l_input_ring[control_id][idx].count = vi;
-    l_input_ring[control_id][idx].inputs = keys;
+    l_input_ring[control_id][idx].inputs = inputs;
     l_input_ring[control_id][idx].plugin = l_plugin[control_id];
     l_input_ring[control_id][idx].valid = 1;
 }
 
-static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32_t keys)
+static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32_t inputs)
 {
     // Build array of inputs to send (current + recent history)
     uint32_t send_vis[INPUT_REDUNDANCY];
-    uint32_t send_keys[INPUT_REDUNDANCY];
+    uint32_t send_inputs[INPUT_REDUNDANCY];
     uint8_t  send_plugins[INPUT_REDUNDANCY];
     int count = 0;
 
     // Always include the current input
     send_vis[count]     = vi;
-    send_keys[count]    = keys;
+    send_inputs[count]    = inputs;
     send_plugins[count] = l_plugin[control_id];
     count++;
 
@@ -1039,7 +1017,7 @@ static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32
             l_input_ring[control_id][idx].count == hvi)
         {
             send_vis[count]     = hvi;
-            send_keys[count]    = l_input_ring[control_id][idx].inputs;
+            send_inputs[count]    = l_input_ring[control_id][idx].inputs;
             send_plugins[count] = l_input_ring[control_id][idx].plugin;
             count++;
         }
@@ -1061,7 +1039,7 @@ static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32
         for (int i = 0; i < count; i++)
         {
             Net_Write32(send_vis[i],  &pkt[off]); off += 4;
-            Net_Write32(send_keys[i], &pkt[off]); off += 4;
+            Net_Write32(send_inputs[i], &pkt[off]); off += 4;
             pkt[off++] = send_plugins[i];
         }
 
@@ -1083,7 +1061,7 @@ static void netplay_send_scheduled_input(uint8_t control_id, uint32_t vi, uint32
         for (int i = 0; i < count; i++)
         {
             Net_Write32(send_vis[i],  &pkt[off]); off += 4;
-            Net_Write32(send_keys[i], &pkt[off]); off += 4;
+            Net_Write32(send_inputs[i], &pkt[off]); off += 4;
             pkt[off++] = send_plugins[i];
         }
 
@@ -1454,7 +1432,7 @@ void netplay_check_sync(struct cp0* cp0)
     if (!netplay_is_init())
         return;
 
-    // During re-simulation, just increment the counter and poll - don't send sync packets
+    // During re-simulation, just increment the counter and poll
     if (l_resimulating)
     {
         ++l_vi_counter;
@@ -1462,7 +1440,7 @@ void netplay_check_sync(struct cp0* cp0)
         return;
     }
 
-    // Tick down rollback cooldown every normal (non-resim) frame
+    // Tick down rollback cooldown every normal frame (obsolete)
     if (l_rollback_cooldown > 0)
         --l_rollback_cooldown;
 

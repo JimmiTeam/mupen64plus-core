@@ -173,8 +173,6 @@ void vi_vertical_interrupt_event(void* opaque)
 {
     struct vi_controller* vi = (struct vi_controller*)opaque;
 
-    // During rollback re-simulation, skip rendering to avoid visual glitches
-    // and run as fast as possible
     if (!netplay_is_resimulating())
     {
         if (vi->dp->do_on_unfreeze & DELAY_DP_INT)
@@ -208,20 +206,19 @@ void vi_vertical_interrupt_event(void* opaque)
     // If replays enabled, start writing inputs upon match start
     if (replays_enabled && !playback_enabled && prev_was_wait && match_ongoing)
     {
-         char* replay_path = replay_manager_get_path();
-         if (replay_path != NULL)
-         {
-             FILE * replay_file = replay_manager_get_file();
-             if (replay_file != NULL)
-             {
+        char* replay_path = replay_manager_get_path();
+        if (replay_path != NULL)
+        {
+            FILE* replay_file = replay_manager_get_file();
+            if (replay_file != NULL)
+            {
                 // Write input for all 4 controller ports
                 replay_manager_write_input(replay_file, 0, old_f, input_manager_get_raw(0));
                 replay_manager_write_input(replay_file, 1, old_f, input_manager_get_raw(1));
                 replay_manager_write_input(replay_file, 2, old_f, input_manager_get_raw(2));
                 replay_manager_write_input(replay_file, 3, old_f, input_manager_get_raw(3));
-                DebugMessage(M64MSG_INFO, "Replay Manager: Captured transition frame %llu", old_f);
-             }
-         }
+            }
+        }
     }
     
     // Increment frame index and latch input for new frame
@@ -259,7 +256,7 @@ void vi_vertical_interrupt_event(void* opaque)
     {
         replay_manager_commit_frames(f_new);
     }
-    else if (replays_enabled && !playback_enabled && last_game_status == REMIX_STATUS_ONGOING && !match_ongoing)
+    else if (replays_enabled && !playback_enabled && current_game_status == REMIX_STATUS_MATCHEND)
     {
         replay_manager_close();
     }

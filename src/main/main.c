@@ -1152,6 +1152,7 @@ void new_vi(void)
     }
 
     int recording_enabled = replay_manager_is_enabled();
+    int playback_enabled = playback_manager_is_enabled();
     int current_game_state = game_manager_get_game_status();
 
     if (last_game_state == REMIX_STATUS_WAIT &&
@@ -1180,6 +1181,13 @@ void new_vi(void)
             DebugMessage(M64MSG_WARNING, "Unknown game type: %d", game_manager_get_game());
         }
         free(replay_folder);
+    }
+
+    if (last_game_state == REMIX_STATUS_MATCHEND &&
+        current_game_state == REMIX_STATUS_RESULTS &&
+        playback_enabled)
+    {
+        main_stop();
     }
     
     last_game_state = current_game_state;
@@ -1730,8 +1738,6 @@ void main_change_gb_cart(int control_id)
 
 m64p_error main_run(void)
 {
-
-    DebugMessage(M64MSG_INFO, "ROM MD5 hash: %s", ROM_SETTINGS.MD5);
     // Auto-start Netplay if enabled
     if (ConfigGetParamBool(g_CoreConfig, "Netplay"))
     {

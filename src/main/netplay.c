@@ -1735,7 +1735,7 @@ m64p_error netplay_receive_config(char* data, int size)
         return M64ERR_INVALID_STATE;
 }
 
-// Contact rendezvous server and receive peer address for direct P2P connection
+// Contact rendezvous server and receive peer address for direct connection
 static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
                                 const char* token, uint16_t local_data_port,
                                 ENetAddress* out_peer_addr,
@@ -1750,9 +1750,6 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     }
     relay_addr.port = ctrl_port;
 
-    // Use the ENet host's own socket if provided, so the relay sees the
-    // correct NAT-mapped port for the game socket.  A separate socket
-    // would create a different NAT mapping that dies when destroyed.
     int own_socket = 0;
     ENetSocket sock;
     if (host_socket != ENET_SOCKET_NULL)
@@ -1849,15 +1846,16 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
         int r = enet_socket_receive(sock, &from, &rb, 1);
         if (r > 0)
         {
-            DebugMessage(M64MSG_INFO, "Netplay: CTRL received %d bytes from %u.%u.%u.%u:%u  first6=[%02X %02X %02X %02X %02X %02X]",
-                r,
-                (from.host >>  0) & 0xFF,
-                (from.host >>  8) & 0xFF,
-                (from.host >> 16) & 0xFF,
-                (from.host >> 24) & 0xFF,
-                from.port,
-                r>=1?rx[0]:0, r>=2?rx[1]:0, r>=3?rx[2]:0,
-                r>=4?rx[3]:0, r>=5?rx[4]:0, r>=6?rx[5]:0);
+            // DebugMessage(M64MSG_INFO, "Netplay: CTRL received %d bytes from %u.%u.%u.%u:%u  first6=[%02X %02X %02X %02X %02X %02X]",
+            //     r,
+            //     (from.host >>  0) & 0xFF,
+            //     (from.host >>  8) & 0xFF,
+            //     (from.host >> 16) & 0xFF,
+            //     (from.host >> 24) & 0xFF,
+            //     from.port,
+            //     r>=1?rx[0]:0, r>=2?rx[1]:0, r>=3?rx[2]:0,
+            //     r>=4?rx[3]:0, r>=5?rx[4]:0, r>=6?rx[5]:0);
+            DebugMessage(M64MSG_INFO, "Netplay: CTRL received %d bytes from peer.", r);
             
             // Ensures that the packet we got is from the server
             if (r >= 6 && rx[4] == (uint8_t)NRLY_VERSION &&
@@ -1870,12 +1868,13 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
                     {
                         memcpy(&out_peer_addr->host, &rx[6], 4);
                         out_peer_addr->port = Net_Read16(&rx[10]);
-                        DebugMessage(M64MSG_INFO, "Netplay: relay CTRL READY received. Peer address: %u.%u.%u.%u:%u",
-                            (out_peer_addr->host >> 0) & 0xFF,
-                            (out_peer_addr->host >> 8) & 0xFF,
-                            (out_peer_addr->host >> 16) & 0xFF,
-                            (out_peer_addr->host >> 24) & 0xFF,
-                            out_peer_addr->port);
+                        // DebugMessage(M64MSG_INFO, "Netplay: relay CTRL READY received. Peer address: %u.%u.%u.%u:%u",
+                        //     (out_peer_addr->host >> 0) & 0xFF,
+                        //     (out_peer_addr->host >> 8) & 0xFF,
+                        //     (out_peer_addr->host >> 16) & 0xFF,
+                        //     (out_peer_addr->host >> 24) & 0xFF,
+                        //     out_peer_addr->port);
+                        DebugMessage(M64MSG_INFO, "Netplay: relay CTRL READY received.");
                         free(pkt);
                         if (own_socket) enet_socket_destroy(sock);
                         return 1;

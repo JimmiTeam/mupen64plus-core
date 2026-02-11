@@ -174,7 +174,7 @@ static uint32_t g_netplay_rollback_frames_total = 0;
 #define RELAY_DATA_PORT 27015 // Server port for relaying packets (obsolete)
 #define RELAY_CTRL_PORT 6420 // Server port for establishing connection
 
-#define NETPLAY_DEFAULT_INPUT_DELAY 2
+#define NETPLAY_DEFAULT_INPUT_DELAY 1
 
 #define INPUT_REDUNDANCY 3 // Number of frames to send with each packet
 
@@ -184,9 +184,12 @@ static uint32_t l_remote_vi = 0;  // Latest VI counter received from the other s
 static void disconnect_and_cleanup(void);
 
 // Make contact with relay server and get peer address
+// If host_socket != ENET_SOCKET_NULL, use it instead of creating a new one
+// (so the relay sees the correct NAT mapping for the game socket).
 static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
                                 const char* token, uint16_t local_data_port,
-                                ENetAddress* out_peer_addr);
+                                ENetAddress* out_peer_addr,
+                                ENetSocket host_socket);
 
 
 m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
@@ -211,7 +214,11 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     local.host = INADDR_ANY;  // Explicit 0, listen on all interfaces
     local.port = 0;
 
-    l_host = enet_host_create(&local, 1, 2, 0, 0);
+    // peerCount=2: one slot for our outgoing enet_host_connect, one free
+    // slot to accept the peer's incoming CONNECT.  With peerCount=1,
+    // the single slot is in CONNECTING state and ENet silently rejects
+    // incoming connections because it only assigns DISCONNECTED slots.
+    l_host = enet_host_create(&local, 2, 2, 0, 0);
     if (!l_host)
     {
         DebugMessage(M64MSG_ERROR, "Netplay: Failed to create ENet host.");
@@ -220,11 +227,20 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     }
 
     uint16_t local_port = l_host->address.port;
+    DebugMessage(M64MSG_INFO, "Netplay: l_host->address.port = %u (before getsockname)", (unsigned)local_port);
     if (local_port == 0)
     {
         ENetAddress bound;
         if (enet_socket_get_address(l_host->socket, &bound) == 0)
+        {
             local_port = bound.port;
+            DebugMessage(M64MSG_INFO, "Netplay: getsockname returned port %u, host %u",
+                (unsigned)bound.port, (unsigned)bound.host);
+        }
+        else
+        {
+            DebugMessage(M64MSG_WARNING, "Netplay: getsockname failed!");
+        }
     }
     DebugMessage(M64MSG_INFO, "Netplay: relay_host='%s' token_len=%u is_host=%d",
     relay_host, (unsigned)strlen(token), l_is_host);
@@ -233,8 +249,9 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
         (unsigned)local_port, (int)l_host->socket, (unsigned)l_host->peerCount);
 
     // CONTROL handshake on 6420, get peer address from rendezvous server
+    // Use l_host->socket so the relay sees the NAT mapping for the actual game socket
     ENetAddress peer_addr = { 0 };
-    if (!relay_ctrl_handshake(relay_host, RELAY_CTRL_PORT, token, local_port, &peer_addr))
+    if (!relay_ctrl_handshake(relay_host, RELAY_CTRL_PORT, token, local_port, &peer_addr, l_host->socket))
     {
         DebugMessage(M64MSG_ERROR, "Netplay: Relay CONTROL handshake failed.");
         enet_host_destroy(l_host);
@@ -244,195 +261,102 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     }
 
     DebugMessage(M64MSG_INFO, "Netplay: Received peer address from rendezvous server");
-
-    DebugMessage(M64MSG_INFO, "Netplay: Attempting direct connection to peer...");
     
     ENetEvent event;
     int ok = 0;
     uint32_t start = SDL_GetTicks();
     ENetAddress connection_addr = peer_addr;
-    int attempt = 0; // 0 = external, 1 = localhost
     
-    DebugMessage(M64MSG_INFO, "Netplay: Initial connection_addr: %u.%u.%u.%u:%u",
+    DebugMessage(M64MSG_INFO, "Netplay: Peer address: %u.%u.%u.%u:%u (host raw=0x%08X)",
         (connection_addr.host >> 0) & 0xFF,
         (connection_addr.host >> 8) & 0xFF,
         (connection_addr.host >> 16) & 0xFF,
         (connection_addr.host >> 24) & 0xFF,
-        connection_addr.port);
+        connection_addr.port,
+        connection_addr.host);
     
-    // Localhost fallback is only needed for testing on the same machine, should otherwise not be in public release
-    while (attempt < 2 && !ok)
+    DebugMessage(M64MSG_INFO, "Netplay: My local port=%u, socket fd=%d, is_host=%d",
+        (unsigned)local_port, (int)l_host->socket, l_is_host);
+    
+    // Both sides connect to each other (standard UDP hole-punching).
+    DebugMessage(M64MSG_INFO, "Netplay: Calling enet_host_connect...");
+
+    ENetPeer* outgoing_peer = enet_host_connect(l_host, &connection_addr, 2, 0);
+    if (!outgoing_peer)
     {
-        if (attempt == 1)
+        DebugMessage(M64MSG_ERROR, "Netplay: enet_host_connect returned NULL!");
+        disconnect_and_cleanup();
+        return M64ERR_SYSTEM_FAIL;
+    }
+    
+    DebugMessage(M64MSG_INFO, "Netplay: enet_host_connect succeeded, peer state=%u, outgoing_peer=%p",
+        (unsigned)outgoing_peer->state, (void*)outgoing_peer);
+
+    start = SDL_GetTicks();
+    uint32_t last_status_log = 0;
+    int total_events = 0;
+    int total_service_calls = 0;
+    while ((SDL_GetTicks() - start) < 20000)
+    {
+        int r = enet_host_service(l_host, &event, 100);
+        total_service_calls++;
+        
+        // Log peer state every 3 seconds so we can see what's happening
+        uint32_t elapsed = SDL_GetTicks() - start;
+        if (elapsed - last_status_log >= 3000)
         {
-            // Fallback to localhost for both peers
-            DebugMessage(M64MSG_INFO, "Netplay: ATTEMPT 1: Falling back to localhost");
-            
-            if (l_is_host)
-            {
-                // Host: Rebind socket explicitly to localhost
-                DebugMessage(M64MSG_INFO, "Netplay: Host destroying original socket...");
-                uint16_t original_port = l_host->address.port;
-                if (original_port == 0)
-                {
-                    ENetAddress bound;
-                    if (enet_socket_get_address(l_host->socket, &bound) == 0)
-                        original_port = bound.port;
-                }
-                DebugMessage(M64MSG_INFO, "Netplay: Host's original port was: %u", original_port);
-                
-                enet_host_destroy(l_host);
-                l_host = NULL;
-                
-                ENetAddress localhost_bind = { 0 };
-                enet_address_set_host(&localhost_bind, "127.0.0.1");
-                localhost_bind.port = original_port;  // Reuse the same port
-                
-                DebugMessage(M64MSG_INFO, "Netplay: Host creating new socket on 127.0.0.1:%u", original_port);
-                l_host = enet_host_create(&localhost_bind, 1, 2, 0, 0);
-                if (!l_host)
-                {
-                    DebugMessage(M64MSG_ERROR, "Netplay: Failed to create localhost host socket on port %u", original_port);
-                    enet_deinitialize();
-                    return M64ERR_SYSTEM_FAIL;
-                }
-                
-                DebugMessage(M64MSG_INFO, "Netplay: Host rebound, socket=%d", (int)l_host->socket);
-                connection_addr.host = localhost_bind.host;
-                connection_addr.port = original_port;
-            }
-            else
-            {
-                DebugMessage(M64MSG_INFO, "Netplay: Client destroying original socket...");
-                enet_host_destroy(l_host);
-                l_host = NULL;
-                
-                ENetAddress localhost_bind = { 0 };
-                enet_address_set_host(&localhost_bind, "127.0.0.1");
-                localhost_bind.port = 0;
-                
-                DebugMessage(M64MSG_INFO, "Netplay: Client creating fresh localhost socket...");
-                l_host = enet_host_create(&localhost_bind, 1, 2, 0, 0);
-                if (!l_host)
-                {
-                    DebugMessage(M64MSG_ERROR, "Netplay: Failed to create localhost client socket");
-                    enet_deinitialize();
-                    return M64ERR_SYSTEM_FAIL;
-                }
-                
-                uint16_t client_port = l_host->address.port;
-                if (client_port == 0)
-                {
-                    ENetAddress bound;
-                    if (enet_socket_get_address(l_host->socket, &bound) == 0)
-                        client_port = bound.port;
-                }
-                DebugMessage(M64MSG_INFO, "Netplay: Client rebound, socket=%d", (int)l_host->socket);
-                
-                connection_addr.host = localhost_bind.host;
-                connection_addr.port = peer_addr.port;
-                DebugMessage(M64MSG_INFO, "Netplay: Client will connect to 127.0.0.1:%u", peer_addr.port);
-            }
+            DebugMessage(M64MSG_INFO, "Netplay: [%us] Waiting... peer_state=%u events_so_far=%d service_calls=%d",
+                elapsed / 1000, (unsigned)outgoing_peer->state, total_events, total_service_calls);
+            last_status_log = elapsed;
         }
         
-        if (l_is_host)
+        if (r > 0)
         {
-            DebugMessage(M64MSG_INFO, "Netplay: Host mode (attempt %d) listening...", attempt);
-            
-            start = SDL_GetTicks();
-            int events_received = 0;
-            while ((SDL_GetTicks() - start) < 15000)
+            total_events++;
+            DebugMessage(M64MSG_INFO, "Netplay: Event type=%d (0=CONNECT,1=DISCONNECT,2=RECEIVE) from peer=%p",
+                event.type, (void*)event.peer);
+            if (event.type == ENET_EVENT_TYPE_CONNECT)
             {
-                int r = enet_host_service(l_host, &event, 100);
-                if (r > 0)
-                {
-                    events_received++;
-                    DebugMessage(M64MSG_INFO, "Netplay: Host attempt %d received event type %d", attempt, event.type);
-                    if (event.type == ENET_EVENT_TYPE_CONNECT)
-                    {
-                        l_peer = event.peer;
-                        ok = 1;
-                        DebugMessage(M64MSG_INFO, "Netplay: Host accepted client connection on attempt %d!", attempt);
-                        break;
-                    }
-                    else if (event.type == ENET_EVENT_TYPE_RECEIVE)
-                    {
-                        enet_packet_destroy(event.packet);
-                    }
-                }
+                l_peer = event.peer;
+                ok = 1;
+                DebugMessage(M64MSG_INFO, "Netplay: Connected! peer=%p addr=%u.%u.%u.%u:%u",
+                    (void*)l_peer,
+                    (l_peer->address.host >>  0) & 0xFF,
+                    (l_peer->address.host >>  8) & 0xFF,
+                    (l_peer->address.host >> 16) & 0xFF,
+                    (l_peer->address.host >> 24) & 0xFF,
+                    l_peer->address.port);
+                break;
             }
-            
-            if (events_received == 0)
+            else if (event.type == ENET_EVENT_TYPE_DISCONNECT)
             {
-                DebugMessage(M64MSG_WARNING, "Netplay: Host attempt %d: received NO events", attempt);
+                DebugMessage(M64MSG_WARNING, "Netplay: Got DISCONNECT event, data=%u", event.data);
+            }
+            else if (event.type == ENET_EVENT_TYPE_RECEIVE)
+            {
+                DebugMessage(M64MSG_INFO, "Netplay: Got RECEIVE event, channelID=%u len=%u",
+                    (unsigned)event.channelID, (unsigned)event.packet->dataLength);
+                enet_packet_destroy(event.packet);
             }
         }
-        else
+        else if (r < 0)
         {
-            DebugMessage(M64MSG_INFO, "Netplay: Client mode (attempt %d) - connecting to %u.%u.%u.%u:%u",
-                attempt,
-                (connection_addr.host >> 0) & 0xFF,
-                (connection_addr.host >> 8) & 0xFF,
-                (connection_addr.host >> 16) & 0xFF,
-                (connection_addr.host >> 24) & 0xFF,
-                connection_addr.port);
-            
-            ENetPeer* outgoing_peer = enet_host_connect(l_host, &connection_addr, 2, 0);
-            if (!outgoing_peer)
-            {
-                DebugMessage(M64MSG_ERROR, "Netplay: Failed to initiate connection (attempt %d).", attempt);
-                if (attempt == 1)
-                {
-                    enet_host_destroy(l_host);
-                    enet_deinitialize();
-                    l_host = NULL;
-                    return M64ERR_SYSTEM_FAIL;
-                }
-            }
-            else
-            {
-                start = SDL_GetTicks();
-                int client_events = 0;
-                while ((SDL_GetTicks() - start) < 15000)
-                {
-                    int r = enet_host_service(l_host, &event, 100);
-                    if (r > 0)
-                    {
-                        client_events++;
-                        DebugMessage(M64MSG_INFO, "Netplay: Client attempt %d received event type %d", attempt, event.type);
-                        if (event.type == ENET_EVENT_TYPE_CONNECT)
-                        {
-                            l_peer = event.peer;
-                            ok = 1;
-                            DebugMessage(M64MSG_INFO, "Netplay: Client connected (attempt %d)!", attempt);
-                            break;
-                        }
-                        else if (event.type == ENET_EVENT_TYPE_RECEIVE)
-                        {
-                            enet_packet_destroy(event.packet);
-                        }
-                    }
-                }
-                
-                if (client_events == 0)
-                {
-                    DebugMessage(M64MSG_WARNING, "Netplay: Client attempt %d: received NO events", attempt);
-                }
-                
-                if (!ok && outgoing_peer && attempt ==0)
-                {
-                    enet_peer_disconnect_now(outgoing_peer, 0);
-                    ENetEvent discard;
-                    while (enet_host_service(l_host, &discard, 0) > 0)
-                    {
-                        if (discard.type == ENET_EVENT_TYPE_RECEIVE)
-                            enet_packet_destroy(discard.packet);
-                    }
-                }
-            }
+            DebugMessage(M64MSG_ERROR, "Netplay: enet_host_service returned error %d", r);
         }
-        
-        attempt++;
+    }
+    
+    DebugMessage(M64MSG_INFO, "Netplay: Connection loop ended. ok=%d total_events=%d total_service_calls=%d elapsed=%ums",
+        ok, total_events, total_service_calls, SDL_GetTicks() - start);
+
+    if (!ok && outgoing_peer)
+    {
+        enet_peer_disconnect_now(outgoing_peer, 0);
+        ENetEvent discard;
+        while (enet_host_service(l_host, &discard, 0) > 0)
+        {
+            if (discard.type == ENET_EVENT_TYPE_RECEIVE)
+                enet_packet_destroy(discard.packet);
+        }
     }
     
     if (!ok)
@@ -1814,7 +1738,8 @@ m64p_error netplay_receive_config(char* data, int size)
 // Contact rendezvous server and receive peer address for direct P2P connection
 static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
                                 const char* token, uint16_t local_data_port,
-                                ENetAddress* out_peer_addr)
+                                ENetAddress* out_peer_addr,
+                                ENetSocket host_socket)
 {
     ENetAddress relay_addr = {0};
 
@@ -1825,20 +1750,33 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     }
     relay_addr.port = ctrl_port;
 
-    ENetSocket sock = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
-    if (sock == ENET_SOCKET_NULL)
+    // Use the ENet host's own socket if provided, so the relay sees the
+    // correct NAT-mapped port for the game socket.  A separate socket
+    // would create a different NAT mapping that dies when destroyed.
+    int own_socket = 0;
+    ENetSocket sock;
+    if (host_socket != ENET_SOCKET_NULL)
     {
-        DebugMessage(M64MSG_ERROR, "Netplay: failed to create socket for relay CTRL");
-        return 0;
+        sock = host_socket;
+        DebugMessage(M64MSG_INFO, "Netplay: HELLO using game socket (fd=%d)", (int)sock);
     }
-
-    enet_socket_set_option(sock, ENET_SOCKOPT_NONBLOCK, 1);
+    else
+    {
+        sock = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+        if (sock == ENET_SOCKET_NULL)
+        {
+            DebugMessage(M64MSG_ERROR, "Netplay: failed to create socket for relay CTRL");
+            return 0;
+        }
+        own_socket = 1;
+        enet_socket_set_option(sock, ENET_SOCKOPT_NONBLOCK, 1);
+    }
 
     uint16_t token_len = (uint16_t)strlen(token);
     if (token_len == 0)
     {
         DebugMessage(M64MSG_ERROR, "Netplay: token length is 0");
-        enet_socket_destroy(sock);
+        if (own_socket) enet_socket_destroy(sock);
         return 0;
     }
 
@@ -1847,7 +1785,7 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     if (!pkt)
     {
         DebugMessage(M64MSG_ERROR, "Netplay: malloc failed for HELLO packet");
-        enet_socket_destroy(sock);
+        if (own_socket) enet_socket_destroy(sock);
         return 0;
     }
 
@@ -1872,8 +1810,8 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     uint32_t start = SDL_GetTicks();
     uint32_t last_send = 0;
 
-    DebugMessage(M64MSG_INFO, "Netplay: sending HELLO to %s:%u (token_len=%u data_port=%u)",
-        relay_host, (unsigned)ctrl_port, (unsigned)token_len, (unsigned)local_data_port);
+    DebugMessage(M64MSG_INFO, "Netplay: sending HELLO to %s:%u (token_len=%u data_port=%u pkt_len=%u)",
+        relay_host, (unsigned)ctrl_port, (unsigned)token_len, (unsigned)local_data_port, (unsigned)pkt_len);
 
     while (1)
     {
@@ -1886,6 +1824,17 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
             if (sent < 0)
             {
                 DebugMessage(M64MSG_ERROR, "Netplay: enet_socket_send failed (ctrl HELLO) sent=%d", sent);
+            }
+            else
+            {
+                DebugMessage(M64MSG_INFO, "Netplay: HELLO sent (%d bytes) to %u.%u.%u.%u:%u via socket %d",
+                    sent,
+                    (relay_addr.host >>  0) & 0xFF,
+                    (relay_addr.host >>  8) & 0xFF,
+                    (relay_addr.host >> 16) & 0xFF,
+                    (relay_addr.host >> 24) & 0xFF,
+                    relay_addr.port,
+                    (int)sock);
             }
             last_send = now;
         }
@@ -1900,6 +1849,16 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
         int r = enet_socket_receive(sock, &from, &rb, 1);
         if (r > 0)
         {
+            DebugMessage(M64MSG_INFO, "Netplay: CTRL received %d bytes from %u.%u.%u.%u:%u  first6=[%02X %02X %02X %02X %02X %02X]",
+                r,
+                (from.host >>  0) & 0xFF,
+                (from.host >>  8) & 0xFF,
+                (from.host >> 16) & 0xFF,
+                (from.host >> 24) & 0xFF,
+                from.port,
+                r>=1?rx[0]:0, r>=2?rx[1]:0, r>=3?rx[2]:0,
+                r>=4?rx[3]:0, r>=5?rx[4]:0, r>=6?rx[5]:0);
+            
             // Ensures that the packet we got is from the server
             if (r >= 6 && rx[4] == (uint8_t)NRLY_VERSION &&
                 rx[0]=='N' && rx[1]=='R' && rx[2]=='L' && rx[3]=='Y')
@@ -1918,7 +1877,7 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
                             (out_peer_addr->host >> 24) & 0xFF,
                             out_peer_addr->port);
                         free(pkt);
-                        enet_socket_destroy(sock);
+                        if (own_socket) enet_socket_destroy(sock);
                         return 1;
                     }
                     else
@@ -1948,6 +1907,6 @@ static int relay_ctrl_handshake(const char* relay_host, uint16_t ctrl_port,
     }
 
     free(pkt);
-    enet_socket_destroy(sock);
+    if (own_socket) enet_socket_destroy(sock);
     return 0;
 }

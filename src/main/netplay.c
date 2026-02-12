@@ -263,13 +263,13 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     uint32_t start = SDL_GetTicks();
     ENetAddress connection_addr = peer_addr;
     
-    DebugMessage(M64MSG_INFO, "Netplay: Peer address: %u.%u.%u.%u:%u (host raw=0x%08X)",
-        (connection_addr.host >> 0) & 0xFF,
-        (connection_addr.host >> 8) & 0xFF,
-        (connection_addr.host >> 16) & 0xFF,
-        (connection_addr.host >> 24) & 0xFF,
-        connection_addr.port,
-        connection_addr.host);
+    // DebugMessage(M64MSG_INFO, "Netplay: Peer address: %u.%u.%u.%u:%u (host raw=0x%08X)",
+    //     (connection_addr.host >> 0) & 0xFF,
+    //     (connection_addr.host >> 8) & 0xFF,
+    //     (connection_addr.host >> 16) & 0xFF,
+    //     (connection_addr.host >> 24) & 0xFF,
+    //     connection_addr.port,
+    //     connection_addr.host);
     
     DebugMessage(M64MSG_INFO, "Netplay: My local port=%u, socket fd=%d, is_host=%d",
         (unsigned)local_port, (int)l_host->socket, l_is_host);
@@ -296,14 +296,13 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
         int r = enet_host_service(l_host, &event, 100);
         total_service_calls++;
         
-        // Log peer state every 3 seconds so we can see what's happening
         uint32_t elapsed = SDL_GetTicks() - start;
-        if (elapsed - last_status_log >= 3000)
-        {
-            DebugMessage(M64MSG_INFO, "Netplay: [%us] Waiting... peer_state=%u events_so_far=%d service_calls=%d",
-                elapsed / 1000, (unsigned)outgoing_peer->state, total_events, total_service_calls);
-            last_status_log = elapsed;
-        }
+        // if (elapsed - last_status_log >= 3000)
+        // {
+        //     DebugMessage(M64MSG_INFO, "Netplay: [%us] Waiting... peer_state=%u events_so_far=%d service_calls=%d",
+        //         elapsed / 1000, (unsigned)outgoing_peer->state, total_events, total_service_calls);
+        //     last_status_log = elapsed;
+        // }
         
         if (r > 0)
         {
@@ -314,13 +313,13 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
             {
                 l_peer = event.peer;
                 ok = 1;
-                DebugMessage(M64MSG_INFO, "Netplay: Connected! peer=%p addr=%u.%u.%u.%u:%u",
-                    (void*)l_peer,
-                    (l_peer->address.host >>  0) & 0xFF,
-                    (l_peer->address.host >>  8) & 0xFF,
-                    (l_peer->address.host >> 16) & 0xFF,
-                    (l_peer->address.host >> 24) & 0xFF,
-                    l_peer->address.port);
+                // DebugMessage(M64MSG_INFO, "Netplay: Connected! peer=%p addr=%u.%u.%u.%u:%u",
+                //     (void*)l_peer,
+                //     (l_peer->address.host >>  0) & 0xFF,
+                //     (l_peer->address.host >>  8) & 0xFF,
+                //     (l_peer->address.host >> 16) & 0xFF,
+                //     (l_peer->address.host >> 24) & 0xFF,
+                //     l_peer->address.port);
                 break;
             }
             else if (event.type == ENET_EVENT_TYPE_DISCONNECT)

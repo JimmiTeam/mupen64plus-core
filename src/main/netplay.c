@@ -214,10 +214,6 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     local.host = INADDR_ANY;  // Explicit 0, listen on all interfaces
     local.port = 0;
 
-    // peerCount=2: one slot for our outgoing enet_host_connect, one free
-    // slot to accept the peer's incoming CONNECT.  With peerCount=1,
-    // the single slot is in CONNECTING state and ENet silently rejects
-    // incoming connections because it only assigns DISCONNECTED slots.
     l_host = enet_host_create(&local, 2, 2, 0, 0);
     if (!l_host)
     {
@@ -278,7 +274,6 @@ m64p_error netplay_start(const char* relay_host, const char* token, int is_host)
     DebugMessage(M64MSG_INFO, "Netplay: My local port=%u, socket fd=%d, is_host=%d",
         (unsigned)local_port, (int)l_host->socket, l_is_host);
     
-    // Both sides connect to each other (standard UDP hole-punching).
     DebugMessage(M64MSG_INFO, "Netplay: Calling enet_host_connect...");
 
     ENetPeer* outgoing_peer = enet_host_connect(l_host, &connection_addr, 2, 0);

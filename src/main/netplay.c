@@ -174,7 +174,7 @@ static uint32_t g_netplay_rollback_frames_total = 0;
 #define RELAY_DATA_PORT 27015 // Server port for relaying packets (obsolete)
 #define RELAY_CTRL_PORT 6420 // Server port for establishing connection
 
-#define NETPLAY_DEFAULT_INPUT_DELAY 2
+#define NETPLAY_DEFAULT_INPUT_DELAY 1
 
 #define INPUT_REDUNDANCY 3 // Number of frames to send with each packet
 

@@ -981,6 +981,9 @@
     <WindowsTargetPlatformVersion>$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
     <TargetPlatformVersion>$(WindowsTargetPlatformVersion)</TargetPlatformVersion>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <IncludePath>E:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC;E:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools;$(IncludePath)</IncludePath>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(PlatformToolset)'=='' or '$(PlatformToolset)'=='v100'" Label="Configuration">
     <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
@@ -997,7 +1000,7 @@
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <OutDir>E:\Jimmi\JimmiLauncher\mupen\</OutDir>
     <IntDir>$(Platform)\$(Configuration)\</IntDir>
     <TargetName>mupen64plus</TargetName>
   </PropertyGroup>

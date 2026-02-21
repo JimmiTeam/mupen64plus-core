@@ -205,6 +205,9 @@ void input_plugin_poll_all_controllers_for_frame(uint64_t frame_index)
     {
         struct controller_input_compat* cin_compat = g_cin_by_port[i];
 
+        if (cin_compat == NULL || Controls[i].RawData)
+            continue;
+
         if (cin_compat->latched_frame_index != frame_index)
         {
             uint32_t value = 0;
@@ -282,8 +285,13 @@ static void input_plugin_read_controller(void* opaque,
 
     //This is for netplay, -1 means there is no local controller controlling this player
     if (control_id == -1) {
+        if (!netplay_is_resimulating())
+            input.readController(-1, NULL);
         return;
     }
+
+    if (netplay_is_resimulating())
+        return;
 
     /* UGLY: use negative offsets to get access to non-const tx pointer */
     input.readController(control_id, rx - 1);
@@ -301,8 +309,13 @@ void input_plugin_controller_command(void* opaque,
 
     //This is for netplay, -1 means there is no local controller controlling this player
     if (control_id == -1) {
+        if (!netplay_is_resimulating())
+            input.readController(-1, NULL);
         return;
     }
+
+    if (netplay_is_resimulating())
+        return;
 
     input.controllerCommand(control_id, tx);
 }

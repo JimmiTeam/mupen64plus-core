@@ -174,7 +174,7 @@ static uint32_t g_netplay_rollback_frames_total = 0;
 #define RELAY_DATA_PORT 27015 // Server port for relaying packets (obsolete)
 #define RELAY_CTRL_PORT 6420 // Server port for establishing connection
 
-#define NETPLAY_DEFAULT_INPUT_DELAY 1
+#define NETPLAY_DEFAULT_INPUT_DELAY 2
 
 #define INPUT_REDUNDANCY 3 // Number of frames to send with each packet
 
@@ -1424,7 +1424,7 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
         // P1 (Host)
         Controls[0].Present = 1;
         Controls[0].Plugin = PLUGIN_NONE;
-        Controls[0].RawData = 0;
+        // Controls[0].RawData = 0;
         l_plugin[0] = PLUGIN_NONE;
         netplay_set_controller(0);
 
@@ -1523,6 +1523,12 @@ void netplay_read_registration(struct controller_input_compat* cin_compats)
                netplay_set_controller(1);
             }
         }
+    }
+    
+    for (int i = 0; i < 4; ++i)
+    {
+        if (l_netplay_control[i] == -1 && Controls[i].Present)
+            Controls[i].RawData = 0;
     }
     
     // for (int i=0; i<4; ++i)
